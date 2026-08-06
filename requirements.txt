@@ -1,0 +1,17 @@
+# --- (vector pipeline) ---
+pandas
+numpy
+scikit-learn
+sentence-transformers
+qdrant-client
+python-dotenv
+
+# --- (api service) ---
+fastapi
+uvicorn
+python-dotenv
+google-genai
+slowapi==0.1.9
+sqlalchemy
+asyncpg
+redis
