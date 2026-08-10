@@ -13,13 +13,15 @@ CSV Data
        Qdrant Vector DB  (collection: matching_store)
               │
               ▼
-   FastAPI Server  (app/)
-     ├── CORS origin-guard middleware
+    FastAPI Server  (app/)
+     ├── CORS origin-guard & API Token Auth middleware
+     ├── Observability DB Logging (async)
      ├── GET /api/v1/voices/animations
      │      ├── In-memory TTL cache
      │      ├── Greedy diversity selection (Qdrant scroll)
      │      ├── 1:1 solution pairing (Qdrant ANN search)
      │      └── Gemini LLM pair validation
+     ├── GET /api/v1/voices/big-numbers (DB Metrics + Redis Cache)
      └── JSON response  →  Frontend
 ```
 
@@ -95,7 +97,7 @@ GET /api/v1/voices/animations?limit=20&reset=false
 
 | Query param | Default | Description |
 |-------------|---------|-------------|
-| `limit` | `FINAL_RESULT_SIZE` (20) | Number of pairs to return |
+| `limit` | `FINAL_RESULT_SIZE` (10) | Number of pairs to return |
 | `reset` | `false` | Clears cache + used-sets; starts fresh from the beginning |
 
 **Response shape:**
@@ -119,37 +121,40 @@ GET /api/v1/voices/animations?limit=20&reset=false
 3. **Greedy diversity** — Selects the `PRE_LLM_FETCH_SIZE` most **mutually dissimilar** challenges using cosine distance maximisation, ensuring broad topic variety.
 4. **1:1 pairing & Fallback** — For each challenge, fetches the top `TOP_SOLUTIONS_PER_CHALLENGE` solutions via ANN search using `MIN_MATCH_SCORE`. **If 0 solutions are found, it immediately retries** with a lower `FALLBACK_MATCH_SCORE` (progressive relaxation).
 5. **Bot Type Filter** — The `SOLUTION_BOT_TYPE` env controls whether solutions fetched are restricted to `story`, `discussion`, or `hybrid` (both).
-6. **LLM validation** (`llm_service.py`) — Sends all candidate pairs to `gemini-flash-latest` in a single structured call. Pairs are rejected if: score < 4, PII detected (person name / village / address / phone), grammar is garbled (>10%), solution doesn't address the challenge's specific root cause, or either text is just a question.
+6. **LLM validation** (`llm_service.py`) — Sends candidate pairs to `gemini-flash-latest` in a structured call. Pairs are rejected if: score < 3, PII detected (person name / village / address / phone), grammar is garbled (>10%), solution doesn't address the challenge's specific root cause, or either text is just a question.
 7. **Lock used IDs** — Challenge and solution IDs are added to in-memory `used_challenges` / `used_solutions` sets, guaranteeing no repeats across cache cycles.
-8. **Pagination** — Once the cache is exhausted or reset, the system automatically fetches the **next batch** of unseen pairs, picking up exactly where the last cycle ended.
+8. **Dynamic Batching** — The system uses a `while` loop to automatically fetch successive batches of 50 challenges until exactly `FINAL_RESULT_SIZE` pairs pass the strict LLM validation, ensuring the API always returns a full set of results.
 
 ---
 
-## 3. CORS / Origin Security (`app/main.py`)
+## 3. Security (CORS & API Token)
 
-**No API keys are used.** Access control is enforced entirely via an **origin allowlist** configured in `.env`.
+Access control is enforced via an **origin allowlist** and an **API Token** (`X-API-Token` header) configured in `.env`.
 
 ### How it works
 
 ```
 ALLOWED_ORIGINS=https://app.example.com,https://staging.example.com   ← .env
+API_TOKEN=your_secure_token
          │
          ▼
-config.py → Settings.ALLOWED_ORIGINS  (comma-split, stripped list)
+config.py → Settings.ALLOWED_ORIGINS / Settings.API_TOKEN
          │
          ▼
 main.py
  ├── CORSMiddleware
  │     allow_origins   = settings.ALLOWED_ORIGINS
  │     allow_methods   = settings.ALLOWED_METHODS    (GET, POST, OPTIONS)
- │     allow_headers   = settings.ALLOWED_HEADERS    (Content-Type, Authorization)
- │     allow_credentials = True  (False when wildcard * is used)
+ │     allow_headers   = settings.ALLOWED_HEADERS    (Content-Type, Authorization, X-API-Token)
  │
- └── origin_guard  (custom HTTP middleware, runs on every request)
-       ├── Wildcard (*) → skip guard, pass through immediately
-       ├── No Origin header → pass through (server-to-server / curl)
-       └── Origin NOT in list → 403 Forbidden
-                { "error": "Forbidden", "detail": "Origin '...' is not in the allowed origins list." }
+ ├── origin_guard  (custom HTTP middleware, runs on every request)
+ │     ├── Wildcard (*) → skip guard, pass through immediately
+ │     ├── No Origin header → pass through (server-to-server / curl)
+ │     └── Origin NOT in list → 403 Forbidden
+ │
+ └── AuthTokenMiddleware
+       ├── Validates `X-API-Token` against `.env`'s `API_TOKEN`
+       └── Skips token check for `/health` and `/docs`
 ```
 
 ### Configuration
@@ -183,9 +188,9 @@ All settings are read from environment variables (`.env` file at project root).
 | `QDRANT_HOST` | `localhost` | Qdrant server hostname |
 | `QDRANT_PORT` | `6333` | Qdrant server port |
 | `MATCHING_COLLECTION` | `matching_store` | Qdrant collection name |
-| `FINAL_RESULT_SIZE` | `20` | Pairs returned per API call |
-| `PRE_LLM_FETCH_SIZE` | `40` | Candidate pairs fetched before LLM validation |
-| `TOP_SOLUTIONS_PER_CHALLENGE` | `50` | ANN results per challenge |
+| `FINAL_RESULT_SIZE` | `10` | Pairs returned per API call |
+| `PRE_LLM_FETCH_SIZE` | `50` | Candidate pairs fetched before LLM validation |
+| `TOP_SOLUTIONS_PER_CHALLENGE` | `5` | ANN results per challenge |
 | `SOLUTION_BOT_TYPE` | `hybrid` | Filter solution `bot_type`: `story`, `discussion`, or `hybrid` |
 | `CACHE_TTL_HOURS` | `2.0` | In-memory cache lifetime (hours) |
 | `MAX_PER_TOPIC` | `1` | Max challenges per deduplicated topic |
@@ -193,6 +198,7 @@ All settings are read from environment variables (`.env` file at project root).
 | `MAX_MATCH_SCORE` | `0.99` | Upper bound of preferred score band |
 | `FALLBACK_MATCH_SCORE`| `0.70` | Retry threshold used if primary fetch yields 0 solutions |
 | `GEMINI_API_KEY` | _(empty)_ | Google Gemini API key; LLM step skipped if blank |
+| `API_TOKEN` | _(empty)_ | Secret token required in `X-API-Token` header for API access |
 | `DEBUG_LOG_DIR` | `pre_llm_logs/` | Directory for pre-LLM JSONL debug logs |
 | `ALLOWED_ORIGINS` | `http://localhost:3000` | Comma-separated allowed browser origins |
 | `ALLOWED_METHODS` | `GET,POST,OPTIONS` | Allowed HTTP methods |
@@ -219,7 +225,14 @@ tail -f logs/app.log
 
 ---
 
-## 5. Setup & Running
+## 6. Observability & DB Metrics
+
+- **API Observability**: Every request is asynchronously logged to PostgreSQL (`api_observability` table) tracking `endpoint`, `method`, `origin`, `triggred_by`, `status`, and `duraion_ms` exactly matching the DB schema.
+- **Big Numbers API**: `GET /api/v1/voices/big-numbers` fetches live metrics from PostgreSQL with a Redis caching layer that instantly clears using the `?reset=true` parameter.
+
+---
+
+## 7. Setup & Running
 
 ### Prerequisites
 
@@ -261,7 +274,7 @@ curl http://127.0.0.1:8000/api/v1/voices/animations
 
 ---
 
-## 6. Debug Logs
+## 8. Debug Logs
 
 Before each LLM validation call, a timestamped `.jsonl` file is written to `pre_llm_logs/`. Each line is a JSON object containing:
 - Challenge details (id, text, district, state, embedded_score)

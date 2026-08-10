@@ -25,7 +25,7 @@ class Settings:
     # Matching Logic Constants
     TYPE_CHALLENGE = "challenge"
     TYPE_SOLUTION = "solution"
-    FINAL_RESULT_SIZE = int(os.getenv("FINAL_RESULT_SIZE", "20"))
+    FINAL_RESULT_SIZE = int(os.getenv("FINAL_RESULT_SIZE", "10"))
     PRE_LLM_FETCH_SIZE = int(os.getenv("PRE_LLM_FETCH_SIZE", "50"))
     TOP_SOLUTIONS_PER_CHALLENGE = int(os.getenv("TOP_SOLUTIONS_PER_CHALLENGE", "5"))
     SOLUTION_CANDIDATE_POOL_SIZE = int(os.getenv("SOLUTION_CANDIDATE_POOL_SIZE", "50"))
@@ -57,11 +57,15 @@ class Settings:
     
     # Gemini API
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-    
+
+    # API Auth Token – callers must send this value in the X-API-Token header.
+    # If left blank the auth middleware will reject every request at startup.
+    API_TOKEN = os.getenv("API_TOKEN", "")
+
     # CORS settings
     ALLOWED_ORIGINS = parse_list("ALLOWED_ORIGINS", "http://localhost:3000")
     ALLOWED_METHODS = parse_list("ALLOWED_METHODS", "GET,POST,OPTIONS")
-    ALLOWED_HEADERS = parse_list("ALLOWED_HEADERS", "Content-Type,Authorization")
+    ALLOWED_HEADERS = parse_list("ALLOWED_HEADERS", "Content-Type,Authorization,X-API-Token")
     
     # Debug Logging
     DEBUG_LOG_DIR = Path(os.getenv("DEBUG_LOG_DIR", str(BASE_DIR / "pre_llm_logs")))

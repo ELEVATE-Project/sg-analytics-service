@@ -1,10 +1,8 @@
-import json
 import time
 import asyncio
 import logging
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import StreamingResponse
 from starlette.background import BackgroundTask
 from sqlalchemy import text
 
@@ -12,95 +10,96 @@ from ..database.connection import async_session
 
 logger = logging.getLogger(__name__)
 
-async def set_body(request: Request, body: bytes):
-    async def receive():
-        return {"type": "http.request", "body": body}
-    request._receive = receive
-
-async def get_body(request: Request) -> bytes:
-    body = await request.body()
-    await set_body(request, body)
-    return body
-
 class ObservabilityMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         start_time = time.time()
         
-        # 1. Capture request body
-        req_body = await get_body(request)
-        req_json = None
-        try:
-            if req_body:
-                req_json = json.loads(req_body.decode('utf-8'))
-        except Exception:
-            pass # ignore parse errors for non-json bodies
-
-        # 2. Process request
+        origin = request.headers.get("origin")
+        # Default to direct_call, unless a custom header says otherwise
+        triggered_by = "cron_job" if request.headers.get("x-triggered-by") == "cron" else "direct_call"
+        
         try:
             response = await call_next(request)
+            
+            # Determine status
+            # If our cache logic sets a custom header, we can log it as a cache hit
+            if response.headers.get("X-Cache-Hit") == "true":
+                status = "cache_hit"
+            elif 200 <= response.status_code < 400:
+                status = "success"
+            else:
+                status = "failure"
+                
+            duration_ms = int((time.time() - start_time) * 1000)
+            
+            task = BackgroundTask(
+                log_api_call,
+                endpoint=request.url.path,
+                method=request.method,
+                origin=origin,
+                triggered_by=triggered_by,
+                status=status,
+                status_code=response.status_code,
+                duration_ms=duration_ms,
+                error_msg=None
+            )
+            
+            # Starlette responses can have background tasks attached
+            if getattr(response, "background", None) is None:
+                response.background = task
+            else:
+                # If there's already a background task, we'd theoretically need to chain them,
+                # but FastAPI usually handles single background tasks. To be safe, we'll
+                # just run ours manually if one already exists.
+                asyncio.create_task(
+                    log_api_call(
+                        endpoint=request.url.path,
+                        method=request.method,
+                        origin=origin,
+                        triggered_by=triggered_by,
+                        status=status,
+                        status_code=response.status_code,
+                        duration_ms=duration_ms,
+                        error_msg=None
+                    )
+                )
+
+            return response
+            
         except Exception as e:
-            # Unhandled exceptions
             duration_ms = int((time.time() - start_time) * 1000)
             asyncio.create_task(
                 log_api_call(
                     endpoint=request.url.path,
                     method=request.method,
+                    origin=origin,
+                    triggered_by=triggered_by,
+                    status="failure",
                     status_code=500,
                     duration_ms=duration_ms,
-                    req_payload=req_json,
-                    res_payload=None,
-                    client_ip=request.client.host if request.client else None,
                     error_msg=str(e)
                 )
             )
             raise e
 
-        # 3. Capture response body
-        res_json = None
-        if not isinstance(response, StreamingResponse):
-            # Attempt to read response body if available (e.g. JSONResponse)
-            if hasattr(response, "body"):
-                try:
-                    res_json = json.loads(response.body.decode('utf-8'))
-                except Exception:
-                    pass
-        else:
-            # For streaming responses, we can't easily capture the body without breaking the stream
-            pass
-
-        duration_ms = int((time.time() - start_time) * 1000)
-        
-        # 4. Asynchronously log the API call
-        task = BackgroundTask(
-            log_api_call,
-            endpoint=request.url.path,
-            method=request.method,
-            status_code=response.status_code,
-            duration_ms=duration_ms,
-            req_payload=req_json,
-            res_payload=res_json,
-            client_ip=request.client.host if request.client else None,
-            error_msg=None
-        )
-        response.background = task
-        
-        return response
-
-async def log_api_call(endpoint: str, method: str, status_code: int, duration_ms: int, req_payload: dict | None, res_payload: dict | None, client_ip: str | None, error_msg: str | None):
+async def log_api_call(endpoint: str, method: str, origin: str | None, triggered_by: str, status: str, status_code: int, duration_ms: int, error_msg: str | None):
     try:
         async with async_session() as session:
+            # Note the exact spelling from the image schema: triggred_by, duraion_ms
             query = text("""
-                INSERT INTO api_observability (endpoint, method, status_code, duration_ms, request_payload, response_payload, client_ip, error_message)
-                VALUES (:endpoint, :method, :status_code, :duration_ms, :req_payload, :res_payload, :client_ip, :error_msg)
+                INSERT INTO api_observability 
+                (endpoint, method, origin, triggred_by, status, status_code, duraion_ms, error_message)
+                VALUES 
+                (:endpoint, :method, :origin, :triggred_by, :status, :status_code, :duraion_ms, :error_msg)
             """)
             await session.execute(query, {
                 "endpoint": endpoint,
                 "method": method,
+                "origin": origin,
+                "triggred_by": triggered_by,
+                "status": status,
                 "status_code": status_code,
-                "duration_ms": duration_ms,
-                "req_payload": json.dumps(req_payload) if req_payload else None,
-                "res_payload": json.dumps(res_payload) if res_payload else None,
-                "client_ip": client_ip,
+                "duraion_ms": duration_ms,
                 "error_msg": error_msg
             })
             await session.commit()

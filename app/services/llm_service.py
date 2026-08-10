@@ -21,7 +21,6 @@ def validate_pairs_with_llm(pairs_data: list[dict]) -> dict[int, str]:
             "[validate_pairs_with_llm] genai_client is None (no GEMINI_API_KEY) "
             "— skipping LLM validation, passing top candidate for all."
         )
-        # Fallback: pick the first solution for each challenge
         return {p["rank"]: p["solutions"][0]["sol_id"] for p in pairs_data if p.get("solutions")}
 
     prompt = (
@@ -51,7 +50,7 @@ def validate_pairs_with_llm(pairs_data: list[dict]) -> dict[int, str]:
 
         "If multiple solutions pass, pick the one that is most detailed and actionable. "
         "Set `score` from 1 (no match) to 5 (excellent match) for the best candidate. "
-        "PASS requires a valid candidate with score >= 4 AND pii_detected=false AND grammar "
+        "PASS requires a valid candidate with score >= 3 AND pii_detected=false AND grammar "
         "acceptable AND valid statements AND an actual action described. Otherwise FAIL. "
         "If no solutions pass, best_sol_id should be null.\n\n"
 
@@ -87,7 +86,7 @@ def validate_pairs_with_llm(pairs_data: list[dict]) -> dict[int, str]:
         
         passed = {}
         for j in judgements:
-            if j.get("verdict") == "PASS" and j.get("score", 0) >= 4 and not j.get("pii_detected") and j.get("best_sol_id"):
+            if j.get("verdict") == "PASS" and j.get("score", 0) >= 3 and not j.get("pii_detected") and j.get("best_sol_id"):
                 passed[j["rank"]] = j["best_sol_id"]
                 
         logger.info("[validate_pairs_with_llm] %s/%s pairs passed.", len(passed), len(pairs_data))

@@ -101,159 +101,165 @@ def build_pairs(limit: int = settings.FINAL_RESULT_SIZE) -> list:
     used_solutions  = redis_cache.get_used_solutions()
     start_rank = len(used_challenges) + 1
 
-    challenges = fetch_top_challenges(used_challenges, limit=settings.PRE_LLM_FETCH_SIZE)
-    if not challenges:
-        return []
+    local_used_challenges = set(used_challenges)
 
-    debug_log_file = new_top_solutions_debug_log_file()
-    logger.info("[pre_llm_fetch] writing full JSON logs to %s", debug_log_file)
+    while len(validated_data) < limit:
+        challenges = fetch_top_challenges(local_used_challenges, limit=settings.PRE_LLM_FETCH_SIZE)
+        if not challenges:
+            logger.info("[build_pairs] Exhausted challenges from DB. Stopping early.")
+            break
+            
+        # Mark fetched challenges as locally used so next loop iteration fetches fresh ones
+        for c in challenges:
+            local_used_challenges.add(c.id)
 
-    challenge_candidates = []
-    llm_payload = []
-    
-    for i, chal_point in enumerate(challenges):
-        # --- Primary fetch (MIN_MATCH_SCORE) ---
-        solutions = fetch_top_solutions(chal_point.vector)
-        used_threshold = settings.MIN_MATCH_SCORE
+        debug_log_file = new_top_solutions_debug_log_file()
+        logger.info("[pre_llm_fetch] writing full JSON logs to %s", debug_log_file)
 
-        # --- Fallback fetch (FALLBACK_MATCH_SCORE) if primary returned nothing ---
-        if not solutions:
-            solutions = fetch_top_solutions(
-                chal_point.vector,
-                score_threshold=settings.FALLBACK_MATCH_SCORE,
-            )
-            used_threshold = settings.FALLBACK_MATCH_SCORE
-            if solutions:
-                logger.info(
-                    "[fallback_fetch] challenge_id=%s primary=0 results, retried at threshold=%s -> got %s solutions",
-                    (chal_point.payload or {}).get('id'), used_threshold, len(solutions),
+        challenge_candidates = []
+        llm_payload = []
+        
+        for i, chal_point in enumerate(challenges):
+            # --- Primary fetch (MIN_MATCH_SCORE) ---
+            solutions = fetch_top_solutions(chal_point.vector)
+            used_threshold = settings.MIN_MATCH_SCORE
+
+            # --- Fallback fetch (FALLBACK_MATCH_SCORE) if primary returned nothing ---
+            if not solutions:
+                solutions = fetch_top_solutions(
+                    chal_point.vector,
+                    score_threshold=settings.FALLBACK_MATCH_SCORE,
                 )
+                used_threshold = settings.FALLBACK_MATCH_SCORE
+                if solutions:
+                    logger.info(
+                        "[fallback_fetch] challenge_id=%s primary=0 results, retried at threshold=%s -> got %s solutions",
+                        (chal_point.payload or {}).get('id'), used_threshold, len(solutions),
+                    )
 
-        chal_payload = chal_point.payload or {}
-        
-        top_sols = top_scored_solutions(
-            solutions,
-            used_solutions,
-            chal_payload.get("statement", ""),
-            top_n=settings.TOP_SOLUTIONS_PER_CHALLENGE,
-            min_score=used_threshold,
-        )
+            chal_payload = chal_point.payload or {}
+            
+            top_sols = top_scored_solutions(
+                solutions,
+                used_solutions,
+                chal_payload.get("statement", ""),
+                top_n=settings.TOP_SOLUTIONS_PER_CHALLENGE,
+                min_score=used_threshold,
+            )
 
-        # We'll log the top scored solution as mapped_solution for debug compatibility
-        best_sol_fallback = top_sols[0] if top_sols else None
-        print_top_solution_debug(chal_point, solutions, best_sol_fallback, debug_log_file)
+            # We'll log the top scored solution as mapped_solution for debug compatibility
+            best_sol_fallback = top_sols[0] if top_sols else None
+            print_top_solution_debug(chal_point, solutions, best_sol_fallback, debug_log_file)
 
-        if top_sols:
-            rank = len(challenge_candidates)
-            llm_payload.append({
-                "rank": rank,
-                "challenge_text": chal_payload.get("statement", ""),
-                "solutions": [
-                    {
-                        "sol_id": str(s.id) if (s.payload or {}).get("id") in (0, None) else str((s.payload or {}).get("id")), 
-                        "text": (s.payload or {}).get("statement", "")
-                    }
-                    for s in top_sols
-                ]
-            })
-            challenge_candidates.append({
-                "challenge_point": chal_point,
-                "top_solutions": top_sols
-            })
+            if top_sols:
+                rank = len(challenge_candidates)
+                llm_payload.append({
+                    "rank": rank,
+                    "challenge_text": chal_payload.get("statement", ""),
+                    "solutions": [
+                        {
+                            "sol_id": str(s.id) if (s.payload or {}).get("id") in (0, None) else str((s.payload or {}).get("id")), 
+                            "text": (s.payload or {}).get("statement", "")
+                        }
+                        for s in top_sols
+                    ]
+                })
+                challenge_candidates.append({
+                    "challenge_point": chal_point,
+                    "top_solutions": top_sols
+                })
 
-        if len(challenge_candidates) >= settings.PRE_LLM_FETCH_SIZE:
-            break
+        if not challenge_candidates:
+            logger.info("[build_pairs] No challenge candidates found in this batch, continuing to next batch.")
+            continue
 
-    if not challenge_candidates:
-        return []
+        valid_results = validate_pairs_with_llm(llm_payload)
 
-    valid_results = validate_pairs_with_llm(llm_payload)
+        dropped_no_sol  = 0   # LLM chose a sol_id we can't find in top_solutions
+        dropped_dedup   = 0   # solution already used by another challenge in this batch
+        dropped_limit   = 0   # hit FINAL_RESULT_SIZE cap
 
-    dropped_no_sol  = 0   # LLM chose a sol_id we can't find in top_solutions
-    dropped_dedup   = 0   # solution already used by another challenge in this batch
-    dropped_limit   = 0   # hit FINAL_RESULT_SIZE cap
-
-    for rank, best_sol_id in valid_results.items():
-        candidate_info = challenge_candidates[rank]
-        chal_point = candidate_info["challenge_point"]
-        
-        # Find the selected solution point
-        selected_sol = None
-        for s in candidate_info["top_solutions"]:
-            s_id = str(s.id) if (s.payload or {}).get("id") in (0, None) else str((s.payload or {}).get("id"))
-            if s_id == best_sol_id:
-                selected_sol = s
-                break
+        for rank, best_sol_id in valid_results.items():
+            candidate_info = challenge_candidates[rank]
+            chal_point = candidate_info["challenge_point"]
+            
+            # Find the selected solution point
+            selected_sol = None
+            for s in candidate_info["top_solutions"]:
+                s_id = str(s.id) if (s.payload or {}).get("id") in (0, None) else str((s.payload or {}).get("id"))
+                if s_id == best_sol_id:
+                    selected_sol = s
+                    break
+                    
+            if not selected_sol:
+                dropped_no_sol += 1
+                logger.debug(
+                    "[build_pairs] rank=%s DROPPED: sol_id=%r not found in top_solutions (available: %s)",
+                    rank, best_sol_id,
+                    [str(s.id) if (s.payload or {}).get("id") in (0, None) else str((s.payload or {}).get("id")) for s in candidate_info["top_solutions"]]
+                )
+                continue
                 
-        if not selected_sol:
-            dropped_no_sol += 1
-            logger.debug(
-                "[build_pairs] rank=%s DROPPED: sol_id=%r not found in top_solutions (available: %s)",
-                rank, best_sol_id,
-                [str(s.id) if (s.payload or {}).get("id") in (0, None) else str((s.payload or {}).get("id")) for s in candidate_info["top_solutions"]]
-            )
-            continue
+            # check if another challenge already claimed this solution in this batch
+            if str(selected_sol.id) in used_solutions:
+                dropped_dedup += 1
+                logger.debug(
+                    "[build_pairs] rank=%s DROPPED: sol_id=%s already used (dedup)",
+                    rank, selected_sol.id
+                )
+                continue
+
+            # Mark as used locally (so same-batch dedup works)
+            used_challenges.add(str(chal_point.id))
+            used_solutions.add(str(selected_sol.id))
+
+            # Persist to Redis
+            redis_cache.add_used_challenges([chal_point.id])
+            redis_cache.add_used_solutions([selected_sol.id])
             
-        # check if another challenge already claimed this solution in this batch
-        if str(selected_sol.id) in used_solutions:
-            dropped_dedup += 1
-            logger.debug(
-                "[build_pairs] rank=%s DROPPED: sol_id=%s already used (dedup)",
-                rank, selected_sol.id
-            )
-            continue
+            chal_payload = chal_point.payload or {}
+            sol_payload = selected_sol.payload or {}
+            chal_meta = chal_payload.get("meta") or {}
+            sol_meta = sol_payload.get("meta") or {}
 
-        # Mark as used locally (so same-batch dedup works)
-        used_challenges.add(str(chal_point.id))
-        used_solutions.add(str(selected_sol.id))
+            chal_id = chal_payload.get("id")
+            if chal_id == 0 or chal_id is None:
+                chal_id = chal_point.id
 
-        # Persist to Redis
-        redis_cache.add_used_challenges([chal_point.id])
-        redis_cache.add_used_solutions([selected_sol.id])
-        
-        chal_payload = chal_point.payload or {}
-        sol_payload = selected_sol.payload or {}
-        chal_meta = chal_payload.get("meta") or {}
-        sol_meta = sol_payload.get("meta") or {}
-
-        chal_id = chal_payload.get("id")
-        if chal_id == 0 or chal_id is None:
-            chal_id = chal_point.id
-
-        sol_id = sol_payload.get("id")
-        if sol_id == 0 or sol_id is None:
-            sol_id = selected_sol.id
+            sol_id = sol_payload.get("id")
+            if sol_id == 0 or sol_id is None:
+                sol_id = selected_sol.id
+                
+            item = {
+                "rank": start_rank + len(validated_data),
+                "match_score": round(selected_sol.score, 4),
+                "challenge": {
+                    "id": chal_id,
+                    "text": chal_payload.get("statement"),
+                    "bot_type": chal_payload.get("bot_type"),
+                    "role": chal_meta.get("role") or "Women Leader",
+                    "district": chal_meta.get("district"),
+                    "state": chal_meta.get("state"),
+                },
+                "solution": {
+                    "id": sol_id,
+                    "text": sol_payload.get("statement"),
+                    "bot_type": sol_payload.get("bot_type"),
+                    "role": sol_meta.get("role"),
+                    "district": sol_meta.get("district"),
+                    "state": sol_meta.get("state"),
+                },
+            }
             
-        item = {
-            "rank": start_rank + len(validated_data),
-            "match_score": round(selected_sol.score, 4),
-            "challenge": {
-                "id": chal_id,
-                "text": chal_payload.get("statement"),
-                "bot_type": chal_payload.get("bot_type"),
-                "role": chal_meta.get("role") or "Women Leader",
-                "district": chal_meta.get("district"),
-                "state": chal_meta.get("state"),
-            },
-            "solution": {
-                "id": sol_id,
-                "text": sol_payload.get("statement"),
-                "bot_type": sol_payload.get("bot_type"),
-                "role": sol_meta.get("role"),
-                "district": sol_meta.get("district"),
-                "state": sol_meta.get("state"),
-            },
-        }
-        
-        validated_data.append(item)
-        if len(validated_data) >= limit:
-            dropped_limit = len(valid_results) - rank - 1
-            break
+            validated_data.append(item)
+            if len(validated_data) >= limit:
+                dropped_limit = len(valid_results) - rank - 1
+                break
 
-    logger.info(
-        "[build_pairs] LLM passed=%s → returned=%s | dropped: sol_not_found=%s dedup=%s limit_cap=%s",
-        len(valid_results), len(validated_data),
-        dropped_no_sol, dropped_dedup, dropped_limit,
-    )
+        logger.info(
+            "[build_pairs] LLM passed=%s → added=%s | dropped: sol_not_found=%s dedup=%s limit_cap=%s | total_valid=%s/%s",
+            len(valid_results), len(valid_results) - dropped_no_sol - dropped_dedup - dropped_limit,
+            dropped_no_sol, dropped_dedup, dropped_limit, len(validated_data), limit
+        )
 
     return validated_data

@@ -7,7 +7,7 @@ from slowapi.errors import RateLimitExceeded
 from .config import settings
 from .limiter import limiter
 from .logging_config import setup_logging
-from .api.routes import animations
+from .api.routes import animations, metrics
 
 
 @asynccontextmanager
@@ -56,8 +56,11 @@ async def origin_guard(request: Request, call_next):
 
     return await call_next(request)
 from .middleware.observability import ObservabilityMiddleware
+from .middleware.auth import AuthTokenMiddleware
 
 app.add_middleware(ObservabilityMiddleware)
+app.add_middleware(AuthTokenMiddleware)
 
 # Include routers
 app.include_router(animations.router)
+app.include_router(metrics.router)
