@@ -1,0 +1,138 @@
+language: "en-US"
+early_access: false
+
+reviews:
+  profile: "assertive"
+  request_changes_workflow: true
+  high_level_summary: true
+  poem: false
+  collapse_walkthrough: false
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - "main"
+
+  path_instructions:
+
+    # -------------------------------------------------------------------------
+    # Entry point & app wiring
+    # -------------------------------------------------------------------------
+    - path: "app/main.py"
+      instructions: |
+        - Verify all routers are registered and middleware is added in the correct order (CORS → rate-limit → observability).
+        - Check that the lifespan handler properly initialises and tears down resources (logging, DB connections).
+        - Ensure no business logic leaks into the app-wiring file.
+
+    # -------------------------------------------------------------------------
+    # Configuration
+    # -------------------------------------------------------------------------
+    - path: "app/config.py"
+      instructions: |
+        - Confirm every new env variable has a sensible default and is typed via Pydantic BaseSettings.
+        - Flag any secrets (API keys, DB passwords) that have been hardcoded instead of read from env.
+        - Check that ALLOWED_ORIGINS, ALLOWED_METHODS, ALLOWED_HEADERS are not overly permissive.
+
+    # -------------------------------------------------------------------------
+    # API routes
+    # -------------------------------------------------------------------------
+    - path: "app/api/routes/**/*.py"
+      instructions: |
+        - Each route must have a response model, status codes, and concise docstring.
+        - Validate all request inputs with Pydantic schemas; reject unknown fields.
+        - Ensure rate-limit decorator (@limiter.limit) is applied where needed.
+        - Confirm exceptions are raised as HTTPException with meaningful detail messages, not returned as raw dicts.
+        - Check that no heavy/blocking work is done directly in the route — delegate to services.
+
+    # -------------------------------------------------------------------------
+    # Pydantic schemas
+    # -------------------------------------------------------------------------
+    - path: "app/api/models/schemas.py"
+      instructions: |
+        - All request and response models must use strict typing — avoid bare `Any` or `dict`.
+        - Confirm validators are used for fields that need sanitisation (e.g. text fields that could carry PII).
+        - Response models must not expose internal/sensitive fields (e.g. DB ids, raw error tracebacks).
+        - Ensure field aliases are used if the JSON key differs from the Python attribute name.
+
+    # -------------------------------------------------------------------------
+    # Services — LLM
+    # -------------------------------------------------------------------------
+    - path: "app/services/llm_service.py"
+      instructions: |
+        - Check token usage is logged for every LLM call.
+        - Ensure all exceptions are caught and a safe fallback is returned — never crash the caller.
+        - Review the validation logic: PASS criteria (score ≥ 4, pii_detected=false, action verb present) must remain intact.
+
+    # -------------------------------------------------------------------------
+    # Services — Matching / Qdrant
+    # -------------------------------------------------------------------------
+    - path: "app/services/matching_service.py"
+      instructions: |
+        - Verify score band filters (MIN_MATCH_SCORE / MAX_MATCH_SCORE / FALLBACK_MATCH_SCORE) are respected.
+        - Check that SOLUTION_CANDIDATE_POOL_SIZE is used to skip exact-duplicate texts.
+        - Confirm per-topic deduplication (MAX_PER_TOPIC) is applied before returning results.
+        - Ensure cache TTL (CACHE_TTL_HOURS) is honoured and cache keys are deterministic.
+
+    - path: "app/services/qdrant_service.py"
+      instructions: |
+        - Verify collection names and ID offsets (CHALLENGE_ID_OFFSET, SOLUTION_ID_OFFSET) are read from config, not hardcoded.
+        - Confirm batch sizes (BATCH_SIZE, SCORE_BATCH_SIZE) are respected and never cause OOM on large inputs.
+        - Check that Qdrant client errors are caught and logged gracefully.
+
+    # -------------------------------------------------------------------------
+    # Database — connection & session
+    # -------------------------------------------------------------------------
+    - path: "app/database/connection.py"
+      instructions: |
+        - Verify the engine uses `postgresql+asyncpg://` and that the URL is not constructed with f-strings from raw env vars.
+        - Confirm `async_sessionmaker` (not the deprecated `sessionmaker`) is used.
+        - Check that sessions are always closed via `async with async_session()` context manager.
+        - No raw SQL strings; use `text()` with bound parameters only.
+
+    - path: "app/database/database.py"
+      instructions: |
+        - Ensure the Qdrant client is instantiated from config (QDRANT_HOST, QDRANT_PORT), never hardcoded.
+        - Verify this module does not duplicate connection logic already in connection.py.
+
+    # -------------------------------------------------------------------------
+    # Middleware — Observability
+    # -------------------------------------------------------------------------
+    - path: "app/middleware/observability.py"
+      instructions: |
+        - Verify the log is written in a BackgroundTask so it never adds latency to the response.
+        - Check that request/response body parsing failures are silently swallowed (log warning, don't crash).
+        - Ensure `client_ip` is sourced from `request.client.host` with a None guard.
+        - Confirm `error_message` is populated for non-2xx responses and unhandled exceptions.
+
+    # -------------------------------------------------------------------------
+    # Logging
+    # -------------------------------------------------------------------------
+    - path: "app/logging_config.py"
+      instructions: |
+        - Verify log level is read from settings (LOG_LEVEL) and not hardcoded.
+        - Check that LOG_RETENTION_DAYS is applied to the rotating file handler.
+        - Confirm sensitive data (API keys, full payloads) are never written to log files.
+
+    # -------------------------------------------------------------------------
+    # Batch pipeline (root-level scripts)
+    # -------------------------------------------------------------------------
+    - path: "vectoring_service.py"
+      instructions: |
+        - Check that BATCH_SIZE and SCORE_BATCH_SIZE are read from env, not hardcoded.
+        - Verify CHALLENGE_ID_OFFSET and SOLUTION_ID_OFFSET are applied correctly to avoid Qdrant point-id collisions.
+        - Ensure CSVs are loaded via DATA_DIR / CHALLENGES_GLOB / SOLUTIONS_GLOB from env.
+        - Confirm the script is idempotent (safe to re-run without duplicating data).
+
+    # -------------------------------------------------------------------------
+    # SQL scripts
+    # -------------------------------------------------------------------------
+    - path: "**/*.sql"
+      instructions: |
+        - All CREATE TABLE statements must use `IF NOT EXISTS`.
+        - All indexes must use `IF NOT EXISTS`.
+        - UUID primary keys must default to `gen_random_uuid()`.
+        - Foreign keys must specify `ON DELETE` behaviour explicitly.
+        - Timestamps must use `TIMESTAMP WITH TIME ZONE`, not plain `TIMESTAMP`.
+
+chat:
+  auto_reply: true
