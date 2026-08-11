@@ -14,18 +14,11 @@ def payload_record_id(point):
     return str(point.id) if payload_id == 0 or payload_id is None else payload_id
 
 def solution_debug_item(solution_point, mapped_solution_id=None):
-    payload = solution_point.payload or {}
-    meta = payload.get("meta") or {}
     return {
         "point_id": str(solution_point.id),
         "id": payload_record_id(solution_point),
         "score": round(solution_point.score, 4),
         "mapped": solution_point.id == mapped_solution_id,
-        "text": payload.get("statement"),
-        "bot_type": payload.get("bot_type"),
-        "role": meta.get("role"),
-        "district": meta.get("district"),
-        "state": meta.get("state"),
     }
 
 def new_top_solutions_debug_log_file():
@@ -46,7 +39,7 @@ def top_scored_solutions(solutions, used_solutions: set, challenge_text: str, to
     challenge_key = normalized_statement(challenge_text)
     candidates = []
     for solution in solutions:
-        if solution.id in used_solutions:
+        if str(solution.id) in used_solutions:
             continue
         # Enforce the score band to discard duplicates (score > MAX_MATCH_SCORE)
         # and ignore completely unrelated solutions (score < min_score).
@@ -63,16 +56,12 @@ def top_scored_solutions(solutions, used_solutions: set, challenge_text: str, to
 
 def print_top_solution_debug(challenge_point, solutions, mapped_solution, log_file: Path):
     chal_payload = challenge_point.payload or {}
-    chal_meta = chal_payload.get("meta") or {}
     mapped_solution_id = mapped_solution.id if mapped_solution else None
     debug_payload = {
         "challenge": {
             "point_id": str(challenge_point.id),
             "id": payload_record_id(challenge_point),
             "embedded_score": round(chal_payload.get("embedded_score", 0.0), 4),
-            "text": chal_payload.get("statement"),
-            "district": chal_meta.get("district"),
-            "state": chal_meta.get("state"),
         },
         "fetched_solution_count": len(solutions),
         "top_5_solutions": [
@@ -213,9 +202,9 @@ def build_pairs(limit: int = settings.FINAL_RESULT_SIZE) -> list:
             used_challenges.add(str(chal_point.id))
             used_solutions.add(str(selected_sol.id))
 
-            # Persist to Redis
-            redis_cache.add_used_challenges([chal_point.id])
-            redis_cache.add_used_solutions([selected_sol.id])
+            # Persist to Redis  (always use canonical string IDs)
+            redis_cache.add_used_challenges([str(chal_point.id)])
+            redis_cache.add_used_solutions([str(selected_sol.id)])
             
             chal_payload = chal_point.payload or {}
             sol_payload = selected_sol.payload or {}

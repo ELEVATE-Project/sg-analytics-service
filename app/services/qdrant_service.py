@@ -52,8 +52,8 @@ def fetch_top_challenges(used_challenges: set, limit: int = settings.FINAL_RESUL
         if not points:
             break
 
-        # Filter out anything we've already used
-        points = [p for p in points if p.id not in used_challenges]
+        # Filter out anything we've already used (IDs are stored as strings in Redis)
+        points = [p for p in points if str(p.id) not in used_challenges]
 
         for p in points:
             topic = topic_of(p.payload.get("statement", ""))

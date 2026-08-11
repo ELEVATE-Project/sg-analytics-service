@@ -7,7 +7,7 @@ Semantic matching service that pairs community **challenges** with the most rele
 
 ```
 CSV Data
-   └── matching_store.py (one-time ingestion)
+   └── vectoring_service.py (one-time ingestion)
               │  embeddings + scores
               ▼
        Qdrant Vector DB  (collection: matching_store)
@@ -48,7 +48,7 @@ rag-implementation/
 │   │   └── llm_service.py         # Gemini LLM validation
 │   └── database/
 │       └── database.py            # QdrantClient singleton
-├── matching_store.py              # One-time data ingestion & scoring pipeline
+├── vectoring_service.py              # One-time data ingestion & scoring pipeline
 ├── data/                          # CSV source files (challenges + solutions)
 ├── logs/                          # Auto-rotated application and access logs
 ├── pre_llm_logs/                  # Debug JSONL logs written before LLM call
@@ -59,7 +59,7 @@ rag-implementation/
 
 ---
 
-## 1. Data Ingestion & Scoring (`matching_store.py`)
+## 1. Data Ingestion & Scoring (`vectoring_service.py`)
 
 Run **once** whenever you receive new CSV data or want to rebuild the database.
 
@@ -76,7 +76,7 @@ Run **once** whenever you receive new CSV data or want to rebuild the database.
 > **ID collision prevention:** Challenges use `CHALLENGE_ID_OFFSET=0`, solutions use `SOLUTION_ID_OFFSET=10000000` — both share the same collection without ever colliding.
 
 ```bash
-python matching_store.py
+python vectoring_service.py
 ```
 
 ---
@@ -129,7 +129,7 @@ GET /api/v1/voices/animations?limit=20&reset=false
 
 ## 3. Security (CORS & API Token)
 
-Access control is enforced via an **origin allowlist** and an **API Token** (`X-API-Token` header) configured in `.env`.
+Access control is enforced via an **origin allowlist** and an **API Token** (`X-Auth-Token` header) configured in `.env`.
 
 ### How it works
 
@@ -145,7 +145,7 @@ main.py
  ├── CORSMiddleware
  │     allow_origins   = settings.ALLOWED_ORIGINS
  │     allow_methods   = settings.ALLOWED_METHODS    (GET, POST, OPTIONS)
- │     allow_headers   = settings.ALLOWED_HEADERS    (Content-Type, Authorization, X-API-Token)
+ │     allow_headers   = settings.ALLOWED_HEADERS    (Content-Type, Authorization, X-Auth-Token)
  │
  ├── origin_guard  (custom HTTP middleware, runs on every request)
  │     ├── Wildcard (*) → skip guard, pass through immediately
@@ -153,7 +153,7 @@ main.py
  │     └── Origin NOT in list → 403 Forbidden
  │
  └── AuthTokenMiddleware
-       ├── Validates `X-API-Token` against `.env`'s `API_TOKEN`
+       ├── Validates `X-Auth-Token` against `.env`'s `API_TOKEN`
        └── Skips token check for `/health` and `/docs`
 ```
 
@@ -172,7 +172,7 @@ ALLOWED_ORIGINS=https://app.example.com,https://staging.example.com
 # ALLOWED_ORIGINS=*
 
 ALLOWED_METHODS=GET,POST,OPTIONS
-ALLOWED_HEADERS=Content-Type,Authorization
+ALLOWED_HEADERS=Content-Type,Authorization,X-Auth-Token
 ```
 
 > No server restart is needed if you pass env vars directly; a restart is required when reading from `.env`.
@@ -198,7 +198,7 @@ All settings are read from environment variables (`.env` file at project root).
 | `MAX_MATCH_SCORE` | `0.99` | Upper bound of preferred score band |
 | `FALLBACK_MATCH_SCORE`| `0.70` | Retry threshold used if primary fetch yields 0 solutions |
 | `GEMINI_API_KEY` | _(empty)_ | Google Gemini API key; LLM step skipped if blank |
-| `API_TOKEN` | _(empty)_ | Secret token required in `X-API-Token` header for API access |
+| `API_TOKEN` | _(empty)_ | Secret token required in `X-Auth-Token` header for API access |
 | `DEBUG_LOG_DIR` | `pre_llm_logs/` | Directory for pre-LLM JSONL debug logs |
 | `ALLOWED_ORIGINS` | `http://localhost:3000` | Comma-separated allowed browser origins |
 | `ALLOWED_METHODS` | `GET,POST,OPTIONS` | Allowed HTTP methods |
@@ -257,7 +257,7 @@ cp .env.example .env
 ### Ingest data (first time / new data)
 
 ```bash
-python matching_store.py
+python vectoring_service.py
 ```
 
 ### Start API server
@@ -269,7 +269,7 @@ uvicorn app.main:app --reload --port 8000
 ### Test the endpoint
 
 ```bash
-curl http://127.0.0.1:8000/api/v1/voices/animations
+curl -H "X-Auth-Token: your_secure_token" http://127.0.0.1:8000/api/v1/voices/animations
 ```
 
 ---

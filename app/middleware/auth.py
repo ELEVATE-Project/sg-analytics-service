@@ -12,7 +12,7 @@ EXEMPT_PATHS: set[str] = {"/health", "/docs", "/openapi.json", "/redoc"}
 
 
 class AuthTokenMiddleware(BaseHTTPMiddleware):
-    """Validates the X-API-Token header on every incoming request.
+    """Validates the X-Auth-Token header on every incoming request.
 
     Enforcement rules:
     - OPTIONS (CORS preflight) requests are always passed through.
@@ -46,10 +46,10 @@ class AuthTokenMiddleware(BaseHTTPMiddleware):
                 },
             )
 
-        token = request.headers.get("X-API-Token", "")
+        token = request.headers.get("X-Auth-Token", "")
         if not token or token != settings.API_TOKEN:
             logger.warning(
-                "Rejected request to %s – invalid or missing X-API-Token "
+                "Rejected request to %s – invalid or missing X-Auth-Token "
                 "(origin=%s, ip=%s)",
                 request.url.path,
                 request.headers.get("origin", "—"),
@@ -59,7 +59,7 @@ class AuthTokenMiddleware(BaseHTTPMiddleware):
                 status_code=401,
                 content={
                     "error": "Unauthorized",
-                    "detail": "Missing or invalid X-API-Token header.",
+                    "detail": "Missing or invalid X-Auth-Token header.",
                 },
             )
 

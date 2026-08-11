@@ -103,10 +103,18 @@ def add_used_solutions(ids: list) -> None:
 # Reset (called when ?reset=true)
 # ---------------------------------------------------------------------------
 
-def flush_cache() -> None:
+def flush_animations_cache() -> None:
     """Delete all animation cache keys from Redis."""
     try:
-        client().delete(PAIRS_KEY, USED_CHALLENGES, USED_SOLUTIONS, BIG_NUMBERS_KEY)
-        logger.info("[redis_cache] cache flushed")
+        client().delete(PAIRS_KEY, USED_CHALLENGES, USED_SOLUTIONS)
+        logger.info("[redis_cache] animations cache flushed")
     except Exception as e:
-        logger.warning("[redis_cache] flush_cache failed: %s", e)
+        logger.warning("[redis_cache] flush_animations_cache failed: %s", e)
+
+def flush_big_numbers_cache() -> None:
+    """Delete the big-numbers cache key from Redis."""
+    try:
+        client().delete(BIG_NUMBERS_KEY)
+        logger.info("[redis_cache] big numbers cache flushed")
+    except Exception as e:
+        logger.warning("[redis_cache] flush_big_numbers_cache failed: %s", e)

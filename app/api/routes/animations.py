@@ -9,15 +9,16 @@ router = APIRouter()
 @router.get("/api/v1/voices/animations")
 @limiter.limit(settings.RATE_LIMIT)
 def get_animations(request: Request, limit: int = Query(settings.FINAL_RESULT_SIZE), reset: bool = Query(False)):
+    limit = min(max(1, limit), settings.FINAL_RESULT_SIZE)
     if reset:
-        redis_cache.flush_cache()
+        redis_cache.flush_animations_cache()
 
     cached = redis_cache.get_cached_pairs()
     if cached is not None:
         return {"data": cached[:limit]}
 
-    data = build_pairs(limit=limit)
+    data = build_pairs(limit=settings.FINAL_RESULT_SIZE)
     if data:
         redis_cache.set_cached_pairs(data)
 
-    return {"data": data}
+    return {"data": data[:limit]}

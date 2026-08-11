@@ -58,14 +58,14 @@ class Settings:
     # Gemini API
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
-    # API Auth Token – callers must send this value in the X-API-Token header.
+    # API Auth Token – callers must send this value in the X-Auth-Token header.
     # If left blank the auth middleware will reject every request at startup.
     API_TOKEN = os.getenv("API_TOKEN", "")
 
     # CORS settings
     ALLOWED_ORIGINS = parse_list("ALLOWED_ORIGINS", "http://localhost:3000")
     ALLOWED_METHODS = parse_list("ALLOWED_METHODS", "GET,POST,OPTIONS")
-    ALLOWED_HEADERS = parse_list("ALLOWED_HEADERS", "Content-Type,Authorization,X-API-Token")
+    ALLOWED_HEADERS = parse_list("ALLOWED_HEADERS", "Content-Type,Authorization,X-Auth-Token")
     
     # Debug Logging
     DEBUG_LOG_DIR = Path(os.getenv("DEBUG_LOG_DIR", str(BASE_DIR / "pre_llm_logs")))

@@ -10,7 +10,7 @@ router = APIRouter()
 @limiter.limit(settings.RATE_LIMIT)
 async def get_big_numbers(request: Request, reset: bool = Query(False)):
     if reset:
-        redis_cache.flush_cache()
+        redis_cache.flush_big_numbers_cache()
 
     cached = redis_cache.get_cached_big_numbers()
     if cached is not None:

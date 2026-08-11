@@ -243,15 +243,18 @@ def build_payload(rec: dict, point_type: str) -> dict:
 
 def upsert_type(client: QdrantClient, records: list[dict], embeddings: np.ndarray,
                  point_type: str, id_offset: int) -> None:
-    points = [
-        qdrant_models.PointStruct(id=id_offset + idx, vector=emb.tolist(),
-                                   payload=build_payload(rec, point_type))
-        for idx, (rec, emb) in enumerate(zip(records, embeddings))
-    ]
     chunk = 1000
-    for start in range(0, len(points), chunk):
-        client.upsert(collection_name=settings.MATCHING_COLLECTION, points=points[start:start + chunk])
-    print(f" Upserted {len(points)} '{point_type}' points")
+    for start in range(0, len(records), chunk):
+        points = [
+            qdrant_models.PointStruct(
+                id=id_offset + index,
+                vector=embeddings[index].tolist(),
+                payload=build_payload(records[index], point_type),
+            )
+            for index in range(start, min(start + chunk, len(records)))
+        ]
+        client.upsert(collection_name=settings.MATCHING_COLLECTION, points=points)
+    print(f" Upserted {len(records)} '{point_type}' points")
 
 
 def ensure_payload_index(client: QdrantClient, field_name: str, schema) -> None:

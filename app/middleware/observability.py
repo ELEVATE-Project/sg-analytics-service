@@ -29,9 +29,13 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
                 status = "success"
             else:
                 status = "failure"
-                
+
+            error_msg = (
+                f"HTTP {response.status_code}" if response.status_code >= 400 else None
+            )
+
             duration_ms = int((time.time() - start_time) * 1000)
-            
+
             task = BackgroundTask(
                 log_api_call,
                 endpoint=request.url.path,
@@ -41,7 +45,7 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
                 status=status,
                 status_code=response.status_code,
                 duration_ms=duration_ms,
-                error_msg=None
+                error_msg=error_msg
             )
             
             # Starlette responses can have background tasks attached
@@ -60,7 +64,7 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
                         status=status,
                         status_code=response.status_code,
                         duration_ms=duration_ms,
-                        error_msg=None
+                        error_msg=error_msg
                     )
                 )
 

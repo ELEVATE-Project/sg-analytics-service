@@ -1,7 +1,10 @@
 import os
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 
-DB_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://user:password@localhost/dbname")
+DB_URL = os.getenv("DATABASE_URL")
+if not DB_URL:
+    raise ValueError("DATABASE_URL environment variable is required")
+
 # Ensure the URL uses asyncpg
 if DB_URL.startswith("postgresql://"):
     DB_URL = DB_URL.replace("postgresql://", "postgresql+asyncpg://", 1)

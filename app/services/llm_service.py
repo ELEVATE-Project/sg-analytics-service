@@ -17,11 +17,12 @@ def validate_pairs_with_llm(pairs_data: list[dict]) -> dict[int, str]:
     Returns: dict mapping `rank` to the `best_sol_id` of the chosen solution.
     """
     if not genai_client:
-        logger.warning(
-            "[validate_pairs_with_llm] genai_client is None (no GEMINI_API_KEY) "
-            "— skipping LLM validation, passing top candidate for all."
+        logger.error(
+            "[validate_pairs_with_llm] GEMINI_API_KEY is not configured "
+            "— rejecting all %s pairs (fail-closed).",
+            len(pairs_data),
         )
-        return {p["rank"]: p["solutions"][0]["sol_id"] for p in pairs_data if p.get("solutions")}
+        return {}
 
     prompt = (
         "You are a strict, skeptical evaluator of challenge-solution pairs for a public knowledge base. "
@@ -81,23 +82,34 @@ def validate_pairs_with_llm(pairs_data: list[dict]) -> dict[int, str]:
                 getattr(usage, 'total_token_count', '?'),
             )
 
-        result = json.loads(response.text)
-        judgements = result.get("judgements", [])
-        
+        valid_ranks = {p["rank"] for p in pairs_data}
+
+        validated = ValidationResponse.model_validate_json(response.text)
+        judgements = validated.judgements
+
         passed = {}
         for j in judgements:
-            if j.get("verdict") == "PASS" and j.get("score", 0) >= 3 and not j.get("pii_detected") and j.get("best_sol_id"):
-                passed[j["rank"]] = j["best_sol_id"]
-                
+            if j.rank not in valid_ranks:
+                logger.warning(
+                    "[validate_pairs_with_llm] model returned out-of-range rank=%s — skipping.",
+                    j.rank,
+                )
+                continue
+            if j.verdict == "PASS" and j.score >= 3 and not j.pii_detected and j.best_sol_id:
+                passed[j.rank] = j.best_sol_id
+
         logger.info("[validate_pairs_with_llm] %s/%s pairs passed.", len(passed), len(pairs_data))
         for j in judgements:
-            if j["rank"] not in passed:
-                pii_note = " [PII]" if j.get("pii_detected") else ""
+            if j.rank not in passed:
+                pii_note = " [PII]" if j.pii_detected else ""
                 logger.debug(
                     "  REJECTED rank=%s score=%s%s reason=%s",
-                    j['rank'], j.get('score'), pii_note, j.get('reason'),
+                    j.rank, j.score, pii_note, j.reason,
                 )
         return passed
     except Exception as e:
-        logger.error("[validate_pairs_with_llm] LLM Validation ERROR - falling back to pass-all top: %r", e)
-        return {p["rank"]: p["solutions"][0]["sol_id"] for p in pairs_data if p.get("solutions")}
+        logger.error(
+            "[validate_pairs_with_llm] LLM validation failed — rejecting all %s pairs (fail-closed): %r",
+            len(pairs_data), e,
+        )
+        return {}
