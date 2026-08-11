@@ -1,15 +1,27 @@
-from fastapi import APIRouter, Query, Request, HTTPException
+from fastapi import APIRouter, Request, Depends, HTTPException
 from ...config import settings
 from ...cache import redis_cache
 from ...services.metrics_service import get_big_numbers_from_db
 from ...limiter import limiter
+from ...api.models.schemas import BigNumbersQuery, BigNumbersResponse
 
 router = APIRouter()
 
-@router.get("/api/v1/voices/big-numbers")
+
+@router.get(
+    "/api/v1/voices/big-numbers",
+    response_model=BigNumbersResponse,
+    status_code=200,
+    summary="Get aggregated big-number metrics",
+    description=(
+        "Returns aggregated metrics (big numbers) from PostgreSQL with a Redis caching layer. "
+        "Pass `reset=true` to evict the cache and force a fresh DB read."
+    ),
+)
 @limiter.limit(settings.RATE_LIMIT)
-async def get_big_numbers(request: Request, reset: bool = Query(False)):
-    if reset:
+async def get_big_numbers(request: Request, query: BigNumbersQuery = Depends()):
+    """Return cached big-number metrics, falling back to a live DB query."""
+    if query.reset:
         redis_cache.flush_big_numbers_cache()
 
     cached = redis_cache.get_cached_big_numbers()
@@ -20,5 +32,5 @@ async def get_big_numbers(request: Request, reset: bool = Query(False)):
     if data is not None:
         redis_cache.set_cached_big_numbers(data)
         return {"data": data}
-    
+
     raise HTTPException(status_code=500, detail="Failed to fetch big numbers")

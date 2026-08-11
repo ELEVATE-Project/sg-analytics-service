@@ -1,4 +1,6 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
+from ...config import settings as _settings
+
 
 class PairJudgement(BaseModel):
     rank: int
@@ -11,3 +13,32 @@ class PairJudgement(BaseModel):
 
 class ValidationResponse(BaseModel):
     judgements: list[PairJudgement]
+
+
+# ---------------------------------------------------------------------------
+# Route query schemas (extra="forbid" rejects unknown query parameters)
+# ---------------------------------------------------------------------------
+
+class AnimationsQuery(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    limit: int = _settings.FINAL_RESULT_SIZE
+    reset: bool = False
+
+
+class BigNumbersQuery(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reset: bool = False
+
+
+# ---------------------------------------------------------------------------
+# Route response schemas
+# ---------------------------------------------------------------------------
+
+class AnimationsResponse(BaseModel):
+    data: list[dict]
+
+
+class BigNumbersResponse(BaseModel):
+    data: dict

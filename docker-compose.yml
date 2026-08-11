@@ -13,7 +13,7 @@ services:
     restart: always
 
   redis:
-    image: redis:alpine
+    image: redis:7.2-alpine@sha256:05a97a479bc73de66f087dc05b569010772880f778cc8671fa6b8aadee32e5c6
     container_name: redis_cache
     # Bound to loopback only – remove or restrict further in production.
     ports:

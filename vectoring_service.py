@@ -243,7 +243,7 @@ def build_payload(rec: dict, point_type: str) -> dict:
 
 def upsert_type(client: QdrantClient, records: list[dict], embeddings: np.ndarray,
                  point_type: str, id_offset: int) -> None:
-    chunk = 1000
+    chunk = BATCH_SIZE
     for start in range(0, len(records), chunk):
         points = [
             qdrant_models.PointStruct(

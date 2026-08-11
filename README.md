@@ -202,7 +202,7 @@ All settings are read from environment variables (`.env` file at project root).
 | `DEBUG_LOG_DIR` | `pre_llm_logs/` | Directory for pre-LLM JSONL debug logs |
 | `ALLOWED_ORIGINS` | `http://localhost:3000` | Comma-separated allowed browser origins |
 | `ALLOWED_METHODS` | `GET,POST,OPTIONS` | Allowed HTTP methods |
-| `ALLOWED_HEADERS` | `Content-Type,Authorization` | Allowed request headers |
+| `ALLOWED_HEADERS` | `Content-Type,Authorization,X-Auth-Token` | Allowed request headers |
 | `RATE_LIMIT`      | `10/minute` | Rate limit per IP address |
 | `LOG_LEVEL` | `INFO` | Application log level (DEBUG, INFO, WARNING, ERROR, CRITICAL) |
 | `LOG_DIR` | `logs` | Directory for auto-rotated log files |

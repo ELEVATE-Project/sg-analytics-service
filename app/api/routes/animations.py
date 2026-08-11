@@ -1,16 +1,31 @@
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Request, Depends
 from ...config import settings
 from ...cache import redis_cache
 from ...services.matching_service import build_pairs
 from ...limiter import limiter
+from ...api.models.schemas import AnimationsQuery, AnimationsResponse
 
 router = APIRouter()
 
-@router.get("/api/v1/voices/animations")
+
+@router.get(
+    "/api/v1/voices/animations",
+    response_model=AnimationsResponse,
+    status_code=200,
+    summary="Get validated challenge-solution animation pairs",
+    description=(
+        "Returns up to `limit` challenge-solution pairs from the Redis cache. "
+        "On a cache miss the pairs are built on-demand via Qdrant + Gemini LLM validation "
+        "and cached for `CACHE_TTL_HOURS`. Pass `reset=true` to evict the cache and "
+        "force a fresh build."
+    ),
+)
 @limiter.limit(settings.RATE_LIMIT)
-def get_animations(request: Request, limit: int = Query(settings.FINAL_RESULT_SIZE), reset: bool = Query(False)):
-    limit = min(max(1, limit), settings.FINAL_RESULT_SIZE)
-    if reset:
+def get_animations(request: Request, query: AnimationsQuery = Depends()):
+    """Return validated animation pairs, using Redis cache when available."""
+    limit = min(max(1, query.limit), settings.FINAL_RESULT_SIZE)
+
+    if query.reset:
         redis_cache.flush_animations_cache()
 
     cached = redis_cache.get_cached_pairs()
