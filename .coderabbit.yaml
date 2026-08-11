@@ -29,7 +29,7 @@ reviews:
     # -------------------------------------------------------------------------
     - path: "app/config.py"
       instructions: |
-        - Confirm every new env variable has a sensible default and is typed via Pydantic BaseSettings.
+        - Confirm every new env variable is typed via Pydantic BaseSettings.
         - Flag any secrets (API keys, DB passwords) that have been hardcoded instead of read from env.
         - Check that ALLOWED_ORIGINS, ALLOWED_METHODS, ALLOWED_HEADERS are not overly permissive.
 
