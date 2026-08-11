@@ -3,6 +3,7 @@ import logging
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.background import BackgroundTask, BackgroundTasks
+from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
 from ..database.connection import async_session
@@ -52,6 +53,8 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
             existing = getattr(response, "background", None)
             if existing is None:
                 response.background = log_task
+            elif isinstance(existing, BackgroundTasks):
+                existing.add_task(log_task.func, *log_task.args, **log_task.kwargs)
             else:
                 tasks = BackgroundTasks()
                 tasks.add_task(existing.func, *existing.args, **existing.kwargs)
@@ -62,9 +65,14 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
 
         except Exception as e:
             duration_ms = int((time.time() - start_time) * 1000)
-            # Cannot attach to response here — run as a fire-and-forget coroutine
-            # wrapped inside a BackgroundTask so it stays within the ASGI lifecycle.
-            log_task = BackgroundTask(
+            logger.error("API failed: %s", e)
+            
+            response = JSONResponse(
+                status_code=500,
+                content={"detail": "Internal Server Error"}
+            )
+            
+            response.background = BackgroundTask(
                 log_api_call,
                 endpoint=request.url.path,
                 method=request.method,
@@ -74,10 +82,10 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
                 status="failure",
                 status_code=500,
                 duration_ms=duration_ms,
-                error_msg=str(e),
+                error_msg="Internal Server Error",
             )
-            await log_task()
-            raise e
+            
+            return response
 
 async def log_api_call(
     endpoint: str,
