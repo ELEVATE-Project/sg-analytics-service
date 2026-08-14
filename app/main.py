@@ -4,10 +4,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from .config import settings
-from .limiter import limiter
-from .logging_config import setup_logging
+from .core.config import settings
+from .core.limiter import limiter
+from .core.logging_config import setup_logging
 from .api.routes import animations, metrics
+from .middleware.observability import ObservabilityMiddleware
+from .middleware.auth import AuthTokenMiddleware
 
 
 @asynccontextmanager
@@ -20,21 +22,16 @@ app = FastAPI(title="SG Voices API's", lifespan=lifespan)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# Wildcard shortcut
-_ALLOW_ALL_ORIGINS = settings.ALLOWED_ORIGINS == ["*"]
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.ALLOWED_ORIGINS,
-    allow_credentials=not _ALLOW_ALL_ORIGINS,
+    allow_credentials=True,
     allow_methods=settings.ALLOWED_METHODS,
     allow_headers=settings.ALLOWED_HEADERS,
 )
 
 @app.middleware("http")
 async def origin_guard(request: Request, call_next):
-    if _ALLOW_ALL_ORIGINS:
-        return await call_next(request)
 
     origin = request.headers.get("origin", "")
     if not origin:
@@ -55,8 +52,6 @@ async def origin_guard(request: Request, call_next):
         )
 
     return await call_next(request)
-from .middleware.observability import ObservabilityMiddleware
-from .middleware.auth import AuthTokenMiddleware
 
 app.add_middleware(ObservabilityMiddleware)
 app.add_middleware(AuthTokenMiddleware)

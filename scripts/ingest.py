@@ -11,8 +11,8 @@ from qdrant_client.http import models as qdrant_models
 from sentence_transformers import SentenceTransformer
 
 import sys
-from app.config import settings
-from app.database.database import get_qdrant_client
+from app.core.config import settings
+from app.database.qdrant import get_qdrant_client
 
 ROOT = Path(__file__).resolve().parent
 

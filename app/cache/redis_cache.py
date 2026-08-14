@@ -1,15 +1,7 @@
-"""
-Redis cache client — thin wrapper around redis-py.
-
-Keys used:
-  animations:pairs          – JSON list of validated pairs (TTL = CACHE_TTL_HOURS)
-  animations:used_challenges – Redis Set of Qdrant point IDs already consumed
-  animations:used_solutions  – Redis Set of Qdrant point IDs already consumed
-"""
 import json
 import logging
 import redis
-from ..config import settings
+from ..core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -17,13 +9,15 @@ PAIRS_KEY         = "animations:pairs"
 USED_CHALLENGES   = "animations:used_challenges"
 USED_SOLUTIONS    = "animations:used_solutions"
 
+_redis_client = None
+
 def client() -> redis.Redis:
-    return redis.Redis.from_url(settings.REDIS_URL, decode_responses=True)
+    global _redis_client
+    if _redis_client is None:
+        _redis_client = redis.Redis.from_url(settings.REDIS_URL, decode_responses=True)
+    return _redis_client
 
-# ---------------------------------------------------------------------------
 # Pairs cache
-# ---------------------------------------------------------------------------
-
 def get_cached_pairs() -> list | None:
     """Return the cached pairs list, or None if the key is missing / expired."""
     try:
@@ -43,9 +37,7 @@ def set_cached_pairs(data: list) -> None:
     except Exception as e:
         logger.warning("[redis_cache] set_cached_pairs failed: %s", e)
 
-# ---------------------------------------------------------------------------
 # Big Numbers cache
-# ---------------------------------------------------------------------------
 BIG_NUMBERS_KEY = "metrics:big_numbers"
 
 def get_cached_big_numbers() -> dict | None:
@@ -65,10 +57,7 @@ def set_cached_big_numbers(data: dict) -> None:
     except Exception as e:
         logger.warning("[redis_cache] set_cached_big_numbers failed: %s", e)
 
-# ---------------------------------------------------------------------------
 # Used-challenge / used-solution sets  (persist across restarts)
-# ---------------------------------------------------------------------------
-
 def get_used_challenges() -> set:
     try:
         return set(client().smembers(USED_CHALLENGES))
@@ -99,10 +88,7 @@ def add_used_solutions(ids: list) -> None:
     except Exception as e:
         logger.warning("[redis_cache] add_used_solutions failed: %s", e)
 
-# ---------------------------------------------------------------------------
 # Reset (called when ?reset=true)
-# ---------------------------------------------------------------------------
-
 def flush_animations_cache() -> None:
     """Delete all animation cache keys from Redis."""
     try:

@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Request, Depends
-from ...config import settings
+from ...core.config import settings
 from ...cache import redis_cache
 from ...services.matching_service import build_pairs
-from ...limiter import limiter
-from ...api.models.schemas import AnimationsQuery, AnimationsResponse
+from ...core.limiter import limiter
+from ...api.schemas import AnimationsQuery, AnimationsResponse
 
 router = APIRouter()
 
@@ -21,7 +21,7 @@ router = APIRouter()
     ),
 )
 @limiter.limit(settings.RATE_LIMIT)
-def get_animations(request: Request, query: AnimationsQuery = Depends()):
+async def get_animations(request: Request, query: AnimationsQuery = Depends()):
     """Return validated animation pairs, using Redis cache when available."""
     limit = min(max(1, query.limit), settings.FINAL_RESULT_SIZE)
 
@@ -32,7 +32,7 @@ def get_animations(request: Request, query: AnimationsQuery = Depends()):
     if cached is not None:
         return {"data": cached[:limit]}
 
-    data = build_pairs(limit=settings.FINAL_RESULT_SIZE)
+    data = await build_pairs(limit=settings.FINAL_RESULT_SIZE)
     if data:
         redis_cache.set_cached_pairs(data)
 

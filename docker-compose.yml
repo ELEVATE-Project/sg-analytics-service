@@ -1,8 +1,18 @@
-version: '3.8'
-
 services:
+  api:
+    build: .
+    container_name: sg_analytics_api
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    depends_on:
+      - qdrant
+      - redis
+    restart: always
+
   qdrant:
-    image: qdrant/qdrant:latest
+    image: qdrant/qdrant:v1.13.6
     container_name: qdrant_db
     # Bound to loopback only – remove or restrict further in production.
     ports:

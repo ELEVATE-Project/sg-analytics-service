@@ -1,14 +1,11 @@
 import os
 from pathlib import Path
-from dotenv import load_dotenv
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import field_validator
 
-# Base directory for the project (one level up from app directory)
-BASE_DIR = Path(__file__).resolve().parent.parent
-
-# Load .env file from the project root
-load_dotenv(BASE_DIR / ".env")
+# Base directory for the project (two levels up from core directory, to sg-analytics-service)
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=str(BASE_DIR / ".env"), extra="ignore")
@@ -20,6 +17,9 @@ class Settings(BaseSettings):
 
     # Redis cache
     REDIS_URL: str = "redis://localhost:6379/0"
+
+    # Postgres database URL (required — no default so startup fails fast if missing)
+    DATABASE_URL: str = ""
     
     # Matching Logic Constants
     TYPE_CHALLENGE: str = "challenge"

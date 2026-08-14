@@ -41,7 +41,7 @@ A valid solution must pass ALL of these criteria:
 6. VALID STATEMENT: Reject (FAIL) if the text is just a question.
 7. ACTION REQUIRED: The solution MUST describe an action that was TAKEN or PROPOSED — something someone actually DID or is DOING (e.g. ''We talked to the parents'', ''I worked with the principal to get Aadhaar cards made'', ''A meeting was organized''). REJECT any candidate that merely describes the problem, a state-of-affairs, or a rule — even if it is on the correct topic (e.g. ''Children without Aadhaar cards are not admitted to school'' is a PROBLEM STATEMENT, not a solution — FAIL it). Look for active verbs: arranged, worked, talked, organized, explained, motivated, ensured, helped, made, conducted.
 
-If multiple solutions pass, pick the one that is most detailed and actionable. Set `score` from 1 (no match) to 5 (excellent match) for the best candidate. PASS requires a valid candidate with score >= 4 AND pii_detected=false AND grammar acceptable AND valid statements AND an actual action described. Otherwise FAIL. If no solutions pass, best_sol_id should be null.
+If multiple solutions pass, pick the one that is most detailed and actionable. Set `score` from 1 (no match) to 5 (excellent match) for the best candidate. PASS requires a valid candidate with score >= 3 AND pii_detected=false AND grammar acceptable AND valid statements AND an actual action described. Otherwise FAIL. If no solutions pass, best_sol_id should be null.
 
 Return a `judgements` list, one entry per challenge, using the exact `rank` given. Include rank, best_sol_id (or null), pii_detected, verdict, and reason.',
         'Data:

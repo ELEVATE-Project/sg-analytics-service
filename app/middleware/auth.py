@@ -1,9 +1,10 @@
 import logging
+import secrets
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from ..config import settings
+from ..core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -12,18 +13,6 @@ EXEMPT_PATHS: set[str] = {"/health", "/docs", "/openapi.json", "/redoc"}
 
 
 class AuthTokenMiddleware(BaseHTTPMiddleware):
-    """Validates the X-Auth-Token header on every incoming request.
-
-    Enforcement rules:
-    - OPTIONS (CORS preflight) requests are always passed through.
-    - Requests to exempt paths (docs, health) are passed through.
-    - If settings.API_TOKEN is blank the server will start, but EVERY
-      non-exempt request will be rejected – this forces operators to set
-      the token before going to production.
-    - Any request missing the header, or carrying the wrong value,
-      receives a 401 Unauthorized response.
-    """
-
     async def dispatch(self, request: Request, call_next):
         # Always allow CORS preflight
         if request.method == "OPTIONS":
@@ -47,7 +36,7 @@ class AuthTokenMiddleware(BaseHTTPMiddleware):
             )
 
         token = request.headers.get("X-Auth-Token", "")
-        if not token or token != settings.API_TOKEN:
+        if not token or not secrets.compare_digest(token, settings.API_TOKEN):
             logger.warning(
                 "Rejected request to %s – invalid or missing X-Auth-Token "
                 "(origin=%s, ip=%s)",

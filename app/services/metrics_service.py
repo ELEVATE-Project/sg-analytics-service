@@ -1,6 +1,6 @@
 import logging
 from sqlalchemy import text
-from ..database.connection import async_session
+from ..database.postgres import async_session
 
 logger = logging.getLogger(__name__)
 

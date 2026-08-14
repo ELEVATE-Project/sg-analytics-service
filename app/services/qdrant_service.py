@@ -1,14 +1,15 @@
 from qdrant_client.http import models as qdrant_models
-from ..config import settings
-from ..database.database import qdrant_client
+from ..core.config import settings
+from ..database.qdrant import qdrant_client
+
+import numpy as np
 
 def cosine_similarity(v1, v2):
-    dot = sum(a * b for a, b in zip(v1, v2))
-    norm1 = sum(a * a for a in v1) ** 0.5
-    norm2 = sum(b * b for b in v2) ** 0.5
-    if norm1 == 0 or norm2 == 0:
-        return 0.0
-    return dot / (norm1 * norm2)
+    # Keep this around if used elsewhere, though we now vectorize in fetch_top_challenges
+    v1, v2 = np.array(v1), np.array(v2)
+    norm1, norm2 = np.linalg.norm(v1), np.linalg.norm(v2)
+    if norm1 == 0 or norm2 == 0: return 0.0
+    return float(np.dot(v1, v2) / (norm1 * norm2))
 
 def topic_of(text: str):
     """Return the matched topic key for a challenge's text."""
@@ -74,24 +75,34 @@ def fetch_top_challenges(used_challenges: set, limit: int = settings.FINAL_RESUL
     if not points:
         return []
 
-    selected = [points[0]]
-    unselected = points[1:]
+    # Convert vectors to a numpy array for vectorized distance computation
+    all_vectors = np.array([p.vector for p in points])
+    # Normalize vectors to unit length so dot product == cosine similarity
+    norms = np.linalg.norm(all_vectors, axis=1, keepdims=True)
+    norms[norms == 0] = 1.0
+    all_vectors = all_vectors / norms
 
-    # Greedy selection for maximum diversity
-    while len(selected) < limit and unselected:
-        best_idx = -1
-        min_max_sim = float('inf')
+    selected_indices = [0]
+    unselected_indices = list(range(1, len(points)))
 
-        for i, p in enumerate(unselected):
-            max_sim = max(cosine_similarity(p.vector, s.vector) for s in selected)
-            if max_sim < min_max_sim:
-                min_max_sim = max_sim
-                best_idx = i
+    while len(selected_indices) < limit and unselected_indices:
+        # Compute similarity between all unselected and all currently selected
+        unselected_vecs = all_vectors[unselected_indices]
+        selected_vecs = all_vectors[selected_indices]
+        
+        # similarity matrix (len(unselected), len(selected))
+        sims = np.dot(unselected_vecs, selected_vecs.T)
+        
+        # max similarity to any selected point for each unselected point
+        max_sims = np.max(sims, axis=1)
+        
+        # pick the unselected point with the minimum max_sim
+        best_local_idx = int(np.argmin(max_sims))
+        
+        selected_indices.append(unselected_indices[best_local_idx])
+        unselected_indices.pop(best_local_idx)
 
-        selected.append(unselected[best_idx])
-        unselected.pop(best_idx)
-
-    return selected
+    return [points[i] for i in selected_indices]
 
 def fetch_top_solutions(challenge_vector, limit: int = settings.SOLUTION_CANDIDATE_POOL_SIZE, score_threshold: float = None):
     # Default to the primary threshold from settings

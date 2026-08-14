@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Request, Depends, HTTPException
-from ...config import settings
+from ...core.config import settings
 from ...cache import redis_cache
 from ...services.metrics_service import get_big_numbers_from_db
-from ...limiter import limiter
-from ...api.models.schemas import BigNumbersQuery, BigNumbersResponse
+from ...core.limiter import limiter
+from ...api.schemas import BigNumbersQuery, BigNumbersResponse
 
 router = APIRouter()
 

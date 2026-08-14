@@ -2,7 +2,7 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
-from ..config import settings
+from ..core.config import settings
 from ..cache import redis_cache
 from .qdrant_service import fetch_top_challenges, fetch_top_solutions
 from .llm_service import validate_pairs_with_llm
@@ -82,7 +82,7 @@ def print_top_solution_debug(challenge_point, solutions, mapped_solution, log_fi
     )
 
 
-def build_pairs(limit: int = settings.FINAL_RESULT_SIZE) -> list:
+async def build_pairs(limit: int = settings.FINAL_RESULT_SIZE) -> list:
     validated_data = []
 
     # --- Load used sets from Redis ---
@@ -100,7 +100,7 @@ def build_pairs(limit: int = settings.FINAL_RESULT_SIZE) -> list:
             
         # Mark fetched challenges as locally used so next loop iteration fetches fresh ones
         for c in challenges:
-            local_used_challenges.add(c.id)
+            local_used_challenges.add(str(c.id))
 
         debug_log_file = new_top_solutions_debug_log_file()
         logger.info("[pre_llm_fetch] writing full JSON logs to %s", debug_log_file)
@@ -162,7 +162,7 @@ def build_pairs(limit: int = settings.FINAL_RESULT_SIZE) -> list:
             logger.info("[build_pairs] No challenge candidates found in this batch, continuing to next batch.")
             continue
 
-        valid_results = validate_pairs_with_llm(llm_payload)
+        valid_results = await validate_pairs_with_llm(llm_payload)
 
         dropped_no_sol  = 0   # LLM chose a sol_id we can't find in top_solutions
         dropped_dedup   = 0   # solution already used by another challenge in this batch

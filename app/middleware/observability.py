@@ -6,7 +6,7 @@ from starlette.background import BackgroundTask, BackgroundTasks
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
-from ..database.connection import async_session
+from ..database.postgres import async_session
 
 logger = logging.getLogger(__name__)
 
@@ -65,27 +65,24 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
 
         except Exception as e:
             duration_ms = int((time.time() - start_time) * 1000)
-            logger.error("API failed: %s", e)
+            logger.exception("API failed")
             
-            response = JSONResponse(
-                status_code=500,
-                content={"detail": "Internal Server Error"}
+            import asyncio
+            asyncio.create_task(
+                log_api_call(
+                    endpoint=request.url.path,
+                    method=request.method,
+                    origin=origin,
+                    client_ip=client_ip,
+                    triggered_by=triggered_by,
+                    status="failure",
+                    status_code=500,
+                    duration_ms=duration_ms,
+                    error_msg="Internal Server Error",
+                )
             )
             
-            response.background = BackgroundTask(
-                log_api_call,
-                endpoint=request.url.path,
-                method=request.method,
-                origin=origin,
-                client_ip=client_ip,
-                triggered_by=triggered_by,
-                status="failure",
-                status_code=500,
-                duration_ms=duration_ms,
-                error_msg="Internal Server Error",
-            )
-            
-            return response
+            raise
 
 async def log_api_call(
     endpoint: str,
@@ -100,21 +97,21 @@ async def log_api_call(
 ):
     try:
         async with async_session() as session:
-            # Note the exact spelling from the DB schema: triggred_by, duraion_ms
+            # Note the exact spelling from the DB schema: triggered_by, duration_ms
             query = text("""
                 INSERT INTO api_observability
-                (endpoint, method, origin, triggred_by, status, status_code, duraion_ms, error_message)
+                (endpoint, method, origin, triggered_by, status, status_code, duration_ms, error_message)
                 VALUES
-                (:endpoint, :method, :origin, :triggred_by, :status, :status_code, :duraion_ms, :error_msg)
+                (:endpoint, :method, :origin, :triggered_by, :status, :status_code, :duration_ms, :error_msg)
             """)
             await session.execute(query, {
                 "endpoint": endpoint,
                 "method": method,
                 "origin": origin,
-                "triggred_by": triggered_by,
+                "triggered_by": triggered_by,
                 "status": status,
                 "status_code": status_code,
-                "duraion_ms": duration_ms,
+                "duration_ms": duration_ms,
                 "error_msg": error_msg,
             })
             await session.commit()
