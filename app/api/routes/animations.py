@@ -26,14 +26,14 @@ async def get_animations(request: Request, query: AnimationsQuery = Depends()):
     limit = min(max(1, query.limit), settings.FINAL_RESULT_SIZE)
 
     if query.reset:
-        redis_cache.flush_animations_cache()
+        await redis_cache.flush_animations_cache()
 
-    cached = redis_cache.get_cached_pairs()
+    cached = await redis_cache.get_cached_pairs()
     if cached is not None:
         return {"data": cached[:limit]}
 
     data = await build_pairs(limit=settings.FINAL_RESULT_SIZE)
     if data:
-        redis_cache.set_cached_pairs(data)
+        await redis_cache.set_cached_pairs(data)
 
     return {"data": data[:limit]}

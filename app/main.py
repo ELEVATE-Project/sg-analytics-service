@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 from .core.config import settings
 from .core.limiter import limiter
 from .core.logging_config import setup_logging
@@ -55,6 +56,7 @@ async def origin_guard(request: Request, call_next):
 
 app.add_middleware(ObservabilityMiddleware)
 app.add_middleware(AuthTokenMiddleware)
+app.add_middleware(SlowAPIMiddleware)
 
 # Include routers
 app.include_router(animations.router)

@@ -6,9 +6,12 @@ from starlette.background import BackgroundTask, BackgroundTasks
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
+import asyncio
 from ..database.postgres import async_session
 
 logger = logging.getLogger(__name__)
+
+pending_log_tasks = set()
 
 class ObservabilityMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
@@ -67,8 +70,7 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
             duration_ms = int((time.time() - start_time) * 1000)
             logger.exception("API failed")
             
-            import asyncio
-            asyncio.create_task(
+            task = asyncio.create_task(
                 log_api_call(
                     endpoint=request.url.path,
                     method=request.method,
@@ -81,6 +83,8 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
                     error_msg="Internal Server Error",
                 )
             )
+            pending_log_tasks.add(task)
+            task.add_done_callback(pending_log_tasks.discard)
             
             raise
 

@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379/0"
 
     # Postgres database URL (required — no default so startup fails fast if missing)
-    DATABASE_URL: str = ""
+    DATABASE_URL: str
     
     # Matching Logic Constants
     TYPE_CHALLENGE: str = "challenge"
@@ -48,6 +48,12 @@ class Settings(BaseSettings):
     
     # Gemini API
     GEMINI_API_KEY: str = ""
+    # Minimum LLM score (1-5) for a pair to be accepted.
+    # 3 is intentionally chosen over 4: score=4 rejects too many
+    # borderline-but-valid pairs and reduces output volume significantly.
+    MIN_LLM_SCORE: int = 3
+    # How long (seconds) to cache the active prompt before re-querying Postgres.
+    PROMPT_TTL_SECONDS: int = 300  # 5 minutes
 
     # API Auth Token – callers must send this value in the X-Auth-Token header.
     # If left blank the auth middleware will reject every request at startup.

@@ -22,15 +22,15 @@ router = APIRouter()
 async def get_big_numbers(request: Request, query: BigNumbersQuery = Depends()):
     """Return cached big-number metrics, falling back to a live DB query."""
     if query.reset:
-        redis_cache.flush_big_numbers_cache()
+        await redis_cache.flush_big_numbers_cache()
 
-    cached = redis_cache.get_cached_big_numbers()
+    cached = await redis_cache.get_cached_big_numbers()
     if cached is not None:
         return {"data": cached}
 
     data = await get_big_numbers_from_db()
     if data is not None:
-        redis_cache.set_cached_big_numbers(data)
+        await redis_cache.set_cached_big_numbers(data)
         return {"data": data}
 
     raise HTTPException(status_code=500, detail="Failed to fetch big numbers")
