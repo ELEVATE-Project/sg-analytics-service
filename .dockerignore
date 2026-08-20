@@ -1,0 +1,58 @@
+# ── Git ──────────────────────────────────────────────────────────────────────
+.git
+.gitignore
+
+# ── Secrets & credentials (NEVER bake into the image) ────────────────────────
+.env
+.env.*
+gcp-key.json
+gemini-key.txt
+
+# ── Python bytecode & caches ──────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# ── Virtual environment ───────────────────────────────────────────────────────
+venv/
+.venv/
+env/
+ENV/
+
+# ── Log files ─────────────────────────────────────────────────────────────────
+logs/
+pre_llm_logs/
+*.log
+
+# ── Runtime / generated data ──────────────────────────────────────────────────
+data/
+
+# ── Dev & agent tooling ───────────────────────────────────────────────────────
+.agents/
+.codex/
+scripts/
+
+# ── Database migration artefacts (not needed at runtime) ─────────────────────
+db/
+api_logs_table.sql
+
+# ── Docker files (no need to copy these into the image itself) ────────────────
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# ── Documentation & repo meta ─────────────────────────────────────────────────
+README.md
+LICENSE
+
+# ── OS noise ──────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── IDE / editor configs ──────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
