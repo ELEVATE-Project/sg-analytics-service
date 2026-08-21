@@ -1,6 +1,6 @@
 services:
   api:
-    build: .
+    image: shaikharshad/sg-analytics-service:v1.0
     container_name: sg_analytics_api
     ports:
       - "8000:8000"
@@ -10,21 +10,23 @@ services:
       # Override localhost defaults from .env so the API reaches Compose services.
       QDRANT_HOST: qdrant
       REDIS_URL: redis://redis:6379/0
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
-      - qdrant
+      #- qdrant
       - redis
     restart: always
 
-  qdrant:
-    image: qdrant/qdrant:v1.13.6
-    container_name: qdrant_db
-    # Bound to loopback only – remove or restrict further in production.
-    ports:
-      - "127.0.0.1:6333:6333"
-      - "127.0.0.1:6334:6334"
-    volumes:
-      - qdrant_data:/qdrant/storage
-    restart: always
+  # qdrant:
+  #   image: qdrant/qdrant:v1.13.6
+  #   container_name: qdrant_db
+  #   # Bound to loopback only – remove or restrict further in production.
+  #   ports:
+  #     - "127.0.0.1:6333:6333"
+  #     - "127.0.0.1:6334:6334"
+  #   volumes:
+  #     - qdrant_data:/qdrant/storage
+  #   restart: always
 
   redis:
     image: redis:7.2-alpine@sha256:05a97a479bc73de66f087dc05b569010772880f778cc8671fa6b8aadee32e5c6
