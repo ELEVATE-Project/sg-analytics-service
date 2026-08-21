@@ -46,8 +46,13 @@ class Settings(BaseSettings):
         "aadhaar": ["aadhaar", "aadhar", "adhaar", "adhar"],
     }
     
-    # Gemini API
-    GEMINI_API_KEY: str = ""
+    # OpenRouter API
+    OPENROUTER_API_KEY: str = ""
+    OPENROUTER_MODEL: str = "anthropic/claude-sonnet-5"
+    OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
+    LLM_TEMPERATURE: float = 0.0
+    LLM_MAX_TOKENS: int = 8192
+    LLM_TIMEOUT_SECONDS: int = 90
     # Minimum LLM score (1-5) for a pair to be accepted.
     # 3 is intentionally chosen over 4: score=4 rejects too many
     # borderline-but-valid pairs and reduces output volume significantly.

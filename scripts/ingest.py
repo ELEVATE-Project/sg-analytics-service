@@ -1,7 +1,12 @@
 import os
 import re
+import sys
 import time
+import uuid
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 import numpy as np
 import pandas as pd
@@ -10,11 +15,8 @@ from qdrant_client import QdrantClient
 from qdrant_client.http import models as qdrant_models
 from sentence_transformers import SentenceTransformer
 
-import sys
 from app.core.config import settings
 from app.database.qdrant import get_qdrant_client
-
-ROOT = Path(__file__).resolve().parent
 
 
 def data_dir() -> Path:
@@ -30,8 +32,6 @@ SOLUTIONS_GLOB      = os.getenv("SOLUTIONS_GLOB",  "new-solutions.csv")
 MODEL_NAME          = os.getenv("MODEL_NAME", "all-MiniLM-L6-v2")
 BATCH_SIZE          = int(os.getenv("BATCH_SIZE", "256"))
 
-CHALLENGE_ID_OFFSET = int(os.getenv("CHALLENGE_ID_OFFSET", "0"))
-SOLUTION_ID_OFFSET  = int(os.getenv("SOLUTION_ID_OFFSET",  "10000000"))
 SCORE_BATCH_SIZE    = int(os.getenv("SCORE_BATCH_SIZE", "50"))
 SCORE_CANDIDATE_POOL_SIZE = int(os.getenv("SCORE_CANDIDATE_POOL_SIZE", "50"))
 
@@ -242,19 +242,25 @@ def build_payload(rec: dict, point_type: str) -> dict:
 
 
 def upsert_type(client: QdrantClient, records: list[dict], embeddings: np.ndarray,
-                 point_type: str, id_offset: int) -> None:
+                 point_type: str) -> None:
+    """Upsert records into Qdrant using uuid4() as the point ID.
+
+    UUIDs are collision-free across challenge and solution points without
+    needing manual ID-offset ranges, so CHALLENGE_ID_OFFSET / SOLUTION_ID_OFFSET
+    are no longer required in the environment.
+    """
     chunk = BATCH_SIZE
     for start in range(0, len(records), chunk):
         points = [
             qdrant_models.PointStruct(
-                id=id_offset + index,
+                id=str(uuid.uuid4()),          # unique per point, no offset needed
                 vector=embeddings[index].tolist(),
                 payload=build_payload(records[index], point_type),
             )
             for index in range(start, min(start + chunk, len(records)))
         ]
         client.upsert(collection_name=settings.MATCHING_COLLECTION, points=points)
-    print(f" Upserted {len(records)} '{point_type}' points")
+    print(f" Upserted {len(records)} '{point_type}' points (uuid IDs)")
 
 
 def ensure_payload_index(client: QdrantClient, field_name: str, schema) -> None:
@@ -413,8 +419,8 @@ def main():
     print(f"\n[3/4] Storing into single collection '{settings.MATCHING_COLLECTION}'...")
     client = get_qdrant_client()
     recreate_collection(client, settings.MATCHING_COLLECTION, vector_size)
-    upsert_type(client, challenges, challenge_embeddings, settings.TYPE_CHALLENGE, CHALLENGE_ID_OFFSET)
-    upsert_type(client, solutions, solution_embeddings, settings.TYPE_SOLUTION, SOLUTION_ID_OFFSET)
+    upsert_type(client, challenges, challenge_embeddings, settings.TYPE_CHALLENGE)
+    upsert_type(client, solutions, solution_embeddings, settings.TYPE_SOLUTION)
     print(" embedded_score is 0.0 immediately after upsert; scoring updates it in [4/4].")
 
     ensure_payload_index(client, "type", qdrant_models.PayloadSchemaType.KEYWORD)

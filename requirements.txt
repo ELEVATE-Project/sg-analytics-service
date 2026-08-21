@@ -10,7 +10,7 @@ python-dotenv
 fastapi
 uvicorn
 python-dotenv
-google-genai
+openai
 slowapi==0.1.9
 sqlalchemy
 asyncpg

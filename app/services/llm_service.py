@@ -5,7 +5,7 @@ import re
 import time
 from typing import Optional
 
-from google import genai
+from openai import AsyncOpenAI
 from sqlalchemy import text
 
 from ..core.config import settings
@@ -14,10 +14,14 @@ from ..database.postgres import async_session
 
 logger = logging.getLogger(__name__)
 
-if settings.GEMINI_API_KEY:
-    genai_client = genai.Client(api_key=settings.GEMINI_API_KEY)
+if settings.OPENROUTER_API_KEY:
+    openai_client = AsyncOpenAI(
+        api_key=settings.OPENROUTER_API_KEY,
+        base_url=settings.OPENROUTER_BASE_URL,
+        timeout=settings.LLM_TIMEOUT_SECONDS,
+    )
 else:
-    genai_client = None
+    openai_client = None
 
 # ---------------------------------------------------------------------------
 # Prompt cache with TTL + version-change invalidation.
@@ -106,79 +110,85 @@ async def validate_pairs_with_llm(pairs_data: list[dict]) -> dict[int, str]:
     pairs_data: list of {"rank": int, "challenge_text": str, "solutions": [{"sol_id": str, "text": str}]}
     Returns: dict mapping `rank` to the `best_sol_id` of the chosen solution.
     """
-    if not genai_client:
+    if not openai_client:
         logger.error(
-            "[validate_pairs_with_llm] GEMINI_API_KEY is not configured "
+            "[validate_pairs_with_llm] OPENROUTER_API_KEY is not configured "
             "— rejecting all %s pairs (fail-closed).",
             len(pairs_data),
         )
         return {}
 
     try:
-        # Prompt fetch + formatting are both inside the exception boundary so
-        # any failure (DB down, template error) returns {} cleanly.
         system_prompt_text, user_prompt_template = await get_prompt()
 
-        user_prompt_text = user_prompt_template.replace(
-            "{{pairs_data}}", json.dumps(pairs_data, indent=2)
-        )
-        prompt = f"{system_prompt_text}\n\n{user_prompt_text}"
-
-        # Run blocking Gemini I/O in a worker thread to keep the event loop free.
-        response = await asyncio.to_thread(
-            genai_client.models.generate_content,
-            model="gemini-flash-lite-latest",
-            contents=prompt,
-            config=genai.types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=ValidationResponse,
-                temperature=0.0,
-            ),
-        )
-
-        # Log token usage for every completed call, even when metadata is absent.
-        usage = getattr(response, "usage_metadata", None)
-        logger.info(
-            "[validate_pairs_with_llm] token usage — prompt=%s output=%s total=%s",
-            getattr(usage, "prompt_token_count", "?") if usage else "?",
-            getattr(usage, "candidates_token_count", "?") if usage else "?",
-            getattr(usage, "total_token_count", "?") if usage else "?",
-        )
-
-        valid_ranks = {p["rank"] for p in pairs_data}
-
-        validated = ValidationResponse.model_validate_json(response.text)
-        judgements = validated.judgements
-
         passed = {}
-        for j in judgements:
-            if j.rank not in valid_ranks:
-                logger.warning(
-                    "[validate_pairs_with_llm] model returned out-of-range rank=%s — skipping.",
-                    j.rank,
-                )
-                continue
+        batch_size = 10
+        
+        for i in range(0, len(pairs_data), batch_size):
+            batch = pairs_data[i:i + batch_size]
+            
+            user_prompt_text = user_prompt_template.replace(
+                "{{pairs_data}}", json.dumps(batch, indent=2)
+            )
 
-            # All PASS criteria must hold (score threshold is MIN_LLM_SCORE=3;
-            # see config for rationale on why 3 is chosen over 4).
-            if (
-                j.verdict == "PASS"
-                and j.score >= settings.MIN_LLM_SCORE
-                and not j.pii_detected
-                and j.best_sol_id
-                and has_action_verb(j.reason)
-            ):
-                passed[j.rank] = j.best_sol_id
-
-        logger.info("[validate_pairs_with_llm] %s/%s pairs passed.", len(passed), len(pairs_data))
-        for j in judgements:
-            if j.rank not in passed:
-                pii_note = " [PII]" if j.pii_detected else ""
-                no_verb_note = " [NO_ACTION_VERB]" if not has_action_verb(j.reason) else ""
-                logger.debug(
-                    "  REJECTED rank=%s score=%s%s%s reason=%s",
-                    j.rank, j.score, pii_note, no_verb_note, j.reason,
+            try:
+                response = await openai_client.beta.chat.completions.parse(
+                    model=settings.OPENROUTER_MODEL,
+                    messages=[
+                        {"role": "system", "content": system_prompt_text},
+                        {"role": "user", "content": user_prompt_text},
+                    ],
+                    response_format=ValidationResponse,
+                    temperature=settings.LLM_TEMPERATURE,
+                    max_completion_tokens=settings.LLM_MAX_TOKENS,
                 )
+
+                usage = response.usage
+                logger.info(
+                    "[validate_pairs_with_llm] batch %d-%d token usage — prompt=%s output=%s total=%s",
+                    i, i + len(batch),
+                    getattr(usage, "prompt_tokens", "?") if usage else "?",
+                    getattr(usage, "completion_tokens", "?") if usage else "?",
+                    getattr(usage, "total_tokens", "?") if usage else "?",
+                )
+
+                validated = response.choices[0].message.parsed
+                if not validated:
+                    logger.error("[validate_pairs_with_llm] LLM failed to parse response for batch.")
+                    continue
+                    
+                judgements = validated.judgements
+
+                valid_ranks = {p["rank"] for p in batch}
+
+                for j in judgements:
+                    if j.rank not in valid_ranks:
+                        logger.warning(
+                            "[validate_pairs_with_llm] model returned out-of-range rank=%s — skipping.",
+                            j.rank,
+                        )
+                        continue
+
+                    if (
+                        j.verdict == "PASS"
+                        and j.score >= settings.MIN_LLM_SCORE
+                        and not j.pii_detected
+                        and j.best_sol_id
+                        and has_action_verb(j.reason)
+                    ):
+                        passed[j.rank] = j.best_sol_id
+                        
+                    if j.rank not in passed:
+                        pii_note = " [PII]" if j.pii_detected else ""
+                        no_verb_note = " [NO_ACTION_VERB]" if not has_action_verb(j.reason) else ""
+                        logger.debug(
+                            "  REJECTED rank=%s score=%s%s%s reason=%s",
+                            j.rank, j.score, pii_note, no_verb_note, j.reason,
+                        )
+            except Exception as e:
+                logger.error("[validate_pairs_with_llm] Batch failed: %r", e)
+
+        logger.info("[validate_pairs_with_llm] %s/%s pairs passed overall.", len(passed), len(pairs_data))
         return passed
 
     except Exception as e:
