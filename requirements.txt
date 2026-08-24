@@ -16,3 +16,5 @@ sqlalchemy
 asyncpg
 redis
 pydantic-settings
+google-cloud-storage
+requests
