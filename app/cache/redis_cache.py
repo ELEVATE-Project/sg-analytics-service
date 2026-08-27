@@ -105,3 +105,119 @@ async def flush_big_numbers_cache() -> None:
     except Exception as e:
         logger.warning("[redis_cache] flush_big_numbers_cache failed: %s", e)
 
+# Themes cache
+THEMES_KEY = "themes:top_with_voices"
+
+async def get_cached_themes() -> list | None:
+    try:
+        raw = await client().get(THEMES_KEY)
+        if raw is None:
+            return None
+        return json.loads(raw)
+    except Exception as e:
+        logger.warning("[redis_cache] get_cached_themes failed: %s", e)
+        return None
+
+async def set_cached_themes(data: list) -> None:
+    try:
+        ttl_seconds = int(settings.CACHE_TTL_HOURS * 3600)
+        await client().setex(THEMES_KEY, ttl_seconds, json.dumps(data))
+    except Exception as e:
+        logger.warning("[redis_cache] set_cached_themes failed: %s", e)
+
+async def flush_themes_cache() -> None:
+    try:
+        await client().delete(THEMES_KEY)
+        logger.info("[redis_cache] themes cache flushed")
+    except Exception as e:
+        logger.warning("[redis_cache] flush_themes_cache failed: %s", e)
+
+# Theme Voices cache
+def get_theme_voices_key(theme_id: str, page: int, page_size: int) -> str:
+    return f"themes:{theme_id}:voices:{page}:{page_size}"
+
+async def get_cached_theme_voices(theme_id: str, page: int, page_size: int) -> dict | None:
+    try:
+        key = get_theme_voices_key(theme_id, page, page_size)
+        raw = await client().get(key)
+        if raw is None:
+            return None
+        return json.loads(raw)
+    except Exception as e:
+        logger.warning("[redis_cache] get_cached_theme_voices failed: %s", e)
+        return None
+
+async def set_cached_theme_voices(theme_id: str, page: int, page_size: int, data: dict) -> None:
+    try:
+        key = get_theme_voices_key(theme_id, page, page_size)
+        ttl_seconds = int(settings.CACHE_TTL_HOURS * 3600)
+        await client().setex(key, ttl_seconds, json.dumps(data))
+    except Exception as e:
+        logger.warning("[redis_cache] set_cached_theme_voices failed: %s", e)
+
+async def flush_theme_voices_cache(theme_id: str) -> None:
+    try:
+        # Escape Redis glob metacharacters to prevent matching unintended keys
+        for char in ['\\', '*', '?', '[', ']', '^', '-']:
+            theme_id = theme_id.replace(char, f'\\{char}')
+            
+        keys = await client().keys(f"themes:{theme_id}:voices:*")
+        if keys:
+            await client().delete(*keys)
+        logger.info(f"[redis_cache] theme voices cache flushed for {theme_id}")
+    except Exception as e:
+        logger.warning("[redis_cache] flush_theme_voices_cache failed: %s", e)
+
+# Community Feed cache
+COMMUNITY_FEED_KEY = "voices:community_feed"
+
+async def get_cached_community_feed() -> list | None:
+    try:
+        raw = await client().get(COMMUNITY_FEED_KEY)
+        if raw is None:
+            return None
+        return json.loads(raw)
+    except Exception as e:
+        logger.warning("[redis_cache] get_cached_community_feed failed: %s", e)
+        return None
+
+async def set_cached_community_feed(data: list) -> None:
+    try:
+        ttl_seconds = int(settings.CACHE_TTL_HOURS * 3600)
+        await client().setex(COMMUNITY_FEED_KEY, ttl_seconds, json.dumps(data))
+    except Exception as e:
+        logger.warning("[redis_cache] set_cached_community_feed failed: %s", e)
+
+async def flush_community_feed_cache() -> None:
+    try:
+        await client().delete(COMMUNITY_FEED_KEY)
+        logger.info("[redis_cache] community feed cache flushed")
+    except Exception as e:
+        logger.warning("[redis_cache] flush_community_feed_cache failed: %s", e)
+
+# Story of the Week cache
+STORY_OF_THE_WEEK_KEY = "voices:story_of_the_week"
+
+async def get_cached_story_of_the_week() -> list | None:
+    try:
+        raw = await client().get(STORY_OF_THE_WEEK_KEY)
+        if raw is None:
+            return None
+        return json.loads(raw)
+    except Exception as e:
+        logger.warning("[redis_cache] get_cached_story_of_the_week failed: %s", e)
+        return None
+
+async def set_cached_story_of_the_week(data: list) -> None:
+    try:
+        ttl_seconds = int(settings.CACHE_TTL_HOURS * 3600)
+        await client().setex(STORY_OF_THE_WEEK_KEY, ttl_seconds, json.dumps(data))
+    except Exception as e:
+        logger.warning("[redis_cache] set_cached_story_of_the_week failed: %s", e)
+
+async def flush_story_of_the_week_cache() -> None:
+    try:
+        await client().delete(STORY_OF_THE_WEEK_KEY)
+        logger.info("[redis_cache] story of the week cache flushed")
+    except Exception as e:
+        logger.warning("[redis_cache] flush_story_of_the_week_cache failed: %s", e)

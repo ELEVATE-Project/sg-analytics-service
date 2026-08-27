@@ -30,6 +30,18 @@ class BigNumbersQuery(BaseModel):
 
     reset: bool = False
 
+class ThemeQuery(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reset: bool = False
+
+class ThemeVoiceQuery(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    page: int = Field(default=1, ge=1)
+    page_size: int = Field(default=4, ge=1, le=100)
+    reset: bool = False
+
 
 # Typed sub-models for pair items
 
@@ -68,3 +80,77 @@ class AnimationsResponse(BaseModel):
 
 class BigNumbersResponse(BaseModel):
     data: BigNumbersData
+
+class ThemeVoice(BaseModel):
+    analysis_result_id: str | int | None = None
+    description: str | None = None
+    voice_by: str | None = None
+    district: str | None = None
+    state: str | None = None
+    voice_number: int | None = None
+    theme_id: str | int | None = None
+
+class ThemeWithVoices(BaseModel):
+    theme_id: str | int
+    theme_name: str | None = None
+    voice_count: int = 0
+    voices: list[ThemeVoice] = []
+
+class ThemesResponse(BaseModel):
+    data: list[ThemeWithVoices]
+
+class ThemeVoicesPaginatedData(BaseModel):
+    voices: list[ThemeVoice]
+    total_voices: int
+    page: int
+    page_size: int
+
+class ThemeVoicesPaginatedResponse(BaseModel):
+    data: ThemeVoicesPaginatedData
+
+
+class CommunityFeedQuery(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reset: bool = False
+
+
+class CommunityFeedStory(BaseModel):
+    """A single story entry returned by the community feed endpoint."""
+    submission_id: str | int
+    action_step: str | None = None
+    impact: str | None = None
+    role: str | None = None
+    district: str | None = None
+    state: str | None = None
+    submission_date: str | None = None
+
+
+
+class CommunityFeedResponse(BaseModel):
+    data: list[CommunityFeedStory]
+
+
+class StoryOfTheWeekQuery(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reset: bool = False
+
+
+class StoryOfTheWeekItem(BaseModel):
+    """A single story entry returned by the story-of-the-week endpoint."""
+    submission_id: str | int
+    tenant_code: str | None = None
+    title: str | None = None
+    content: str | None = None
+    image_urls: list[str] | None = None
+    pdf_urls: list[str] | None = None
+    role: str | None = None
+    district: str | None = None
+    state: str | None = None
+    submission_date: str | None = None
+    story_number: int | None = None
+
+
+class StoryOfTheWeekResponse(BaseModel):
+    data: list[StoryOfTheWeekItem]
