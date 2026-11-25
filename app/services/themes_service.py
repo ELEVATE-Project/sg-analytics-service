@@ -6,51 +6,54 @@ logger = logging.getLogger(__name__)
 
 async def get_top_themes_with_voices_from_db() -> list[dict] | None:
     query = text("""
-        WITH theme_voices AS (
-            SELECT
-                ar.theme_id,
-                ar.id AS analysis_result_id,
-                ar.statements,
-                s.role,
-                s.district,
-                s.state,
-                ROW_NUMBER() OVER (
-                    PARTITION BY ar.theme_id
-                    ORDER BY ar.id
-                ) AS voice_number
-            FROM analysis_results ar
-            JOIN submissions s
-                ON s.submission_id = ar.submission_id
-               AND s.tenant_code = ar.tenant_code
-        ),
-        theme_counts AS (
-            SELECT
-                theme_id,
-                COUNT(*) AS voice_count
-            FROM analysis_results
-            WHERE theme_id IS NOT NULL
-            GROUP BY theme_id
-        )
-        SELECT
-            t.id AS theme_id,
-            t.name AS theme_name,
-            COALESCE(tc.voice_count, 0) AS voice_count,
-            tv.analysis_result_id,
-            tv.statements AS description,
-            tv.role AS voice_by,
-            tv.district,
-            tv.state,
-            tv.voice_number
-        FROM themes t
-        LEFT JOIN theme_counts tc
-            ON tc.theme_id = t.id
-        LEFT JOIN theme_voices tv
-            ON tv.theme_id = t.id
-           AND tv.voice_number <= 4
-        ORDER BY
-            COALESCE(tc.voice_count, 0) DESC,
-            t.id,
-            tv.voice_number;
+                 WITH theme_voices AS (
+                    SELECT
+                        ar.theme_id,
+                        ar.id AS analysis_result_id,
+                        ar.statement_id,
+                        st.cleaned_statement,
+                        s.role,
+                        s.district,
+                        s.state,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY ar.theme_id
+                            ORDER BY ar.id
+                        ) AS voice_number
+                    FROM analysis_results ar
+                    JOIN submissions s
+                        ON s.submission_id = ar.submission_id
+                    AND s.tenant_code = ar.tenant_code
+                    LEFT JOIN statements st
+                        ON st.id = ar.statement_id
+                ),
+                theme_counts AS (
+                    SELECT
+                        theme_id,
+                        COUNT(*) AS voice_count
+                    FROM analysis_results
+                    WHERE theme_id IS NOT NULL
+                    GROUP BY theme_id
+                )
+                SELECT
+                    t.id AS theme_id,
+                    t.name AS theme_name,
+                    COALESCE(tc.voice_count, 0) AS voice_count,
+                    tv.analysis_result_id,
+                    COALESCE(tv.cleaned_statement, tv.statement_id::text) AS description,
+                    tv.role AS voice_by,
+                    tv.district,
+                    tv.state,
+                    tv.voice_number
+                FROM themes t
+                LEFT JOIN theme_counts tc
+                    ON tc.theme_id = t.id
+                LEFT JOIN theme_voices tv
+                    ON tv.theme_id = t.id
+                AND tv.voice_number <= 4
+                ORDER BY
+                    COALESCE(tc.voice_count, 0) DESC,
+                    t.id,
+                    tv.voice_number;
     """)
     
     try:
@@ -86,41 +89,43 @@ async def get_top_themes_with_voices_from_db() -> list[dict] | None:
 
 async def get_theme_voices_paginated_from_db(theme_id: str, page: int, page_size: int) -> dict | None:
     query = text("""
-        WITH total_count AS (
-            SELECT COUNT(*) AS total_voices
-            FROM analysis_results ar
-            JOIN submissions s
-                ON s.submission_id = ar.submission_id
-               AND s.tenant_code = ar.tenant_code
-            WHERE ar.theme_id = :theme_id
-        ),
-        paged AS (
-            SELECT
-                ar.id AS analysis_result_id,
-                ar.theme_id,
-                ar.statements AS description,
-                s.role AS voice_by,
-                s.district,
-                s.state
-            FROM analysis_results ar
-            JOIN submissions s
-                ON s.submission_id = ar.submission_id
-               AND s.tenant_code = ar.tenant_code
-            WHERE ar.theme_id = :theme_id
-            ORDER BY ar.id
-            LIMIT :page_size
-            OFFSET :offset
-        )
-        SELECT
-            p.analysis_result_id,
-            p.theme_id,
-            p.description,
-            p.voice_by,
-            p.district,
-            p.state,
-            t.total_voices
-        FROM total_count t
-        LEFT JOIN paged p ON TRUE;
+                WITH total_count AS (
+                    SELECT COUNT(*) AS total_voices
+                    FROM analysis_results ar
+                    JOIN submissions s
+                        ON s.submission_id = ar.submission_id
+                    AND s.tenant_code = ar.tenant_code
+                    WHERE ar.theme_id = :theme_id
+                ),
+                paged AS (
+                    SELECT
+                        ar.id AS analysis_result_id,
+                        ar.theme_id,
+                        ar.statement_id,
+                        s.role AS voice_by,
+                        s.district,
+                        s.state
+                    FROM analysis_results ar
+                    JOIN submissions s
+                        ON s.submission_id = ar.submission_id
+                    AND s.tenant_code = ar.tenant_code
+                    WHERE ar.theme_id = :theme_id
+                    ORDER BY ar.id
+                    LIMIT :page_size
+                    OFFSET :offset
+                )
+                SELECT
+                    p.analysis_result_id,
+                    p.theme_id,
+                    COALESCE(st.cleaned_statement, p.statement_id::text) AS description,
+                    p.voice_by,
+                    p.district,
+                    p.state,
+                    t.total_voices
+                FROM total_count t
+                LEFT JOIN paged p ON TRUE
+                LEFT JOIN statements st
+                    ON st.id = p.statement_id;
     """)
     
     offset = (page - 1) * page_size

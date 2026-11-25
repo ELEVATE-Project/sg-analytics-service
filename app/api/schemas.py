@@ -6,7 +6,7 @@ from ..core.config import settings as _settings
 class PairJudgement(BaseModel):
     rank: int
     best_sol_id: str | None = None
-    score: int = Field(ge=1, le=5)  # 1 (no match) - 5 (excellent, specific match)
+    score: int = Field(ge=0, le=5)  # 0 (no match / rejected) - 5 (excellent, specific match)
     pii_detected: bool  # true if challenge/solution text names a person, village, address, or phone number
     verdict: Literal["PASS", "FAIL"]        # "PASS" or "FAIL"
     reason: str

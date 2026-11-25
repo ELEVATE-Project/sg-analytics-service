@@ -126,9 +126,40 @@ async def validate_pairs_with_llm(pairs_data: list[dict]) -> dict[int, str]:
         
         for i in range(0, len(pairs_data), batch_size):
             batch = pairs_data[i:i + batch_size]
+
+            # Remap rank to 0..len(batch)-1 so the model always receives consistent local ranks
+            batch_payload = []
+            local_to_global = {}
+            for local_idx, item in enumerate(batch):
+                global_rank = item["rank"]
+                local_to_global[local_idx] = global_rank
+                local_to_global[local_idx + 1] = global_rank  # Support 1-based indexing from LLM as well
+                local_to_global[global_rank] = global_rank    # Support global rank if echoed directly
+
+                item_copy = dict(item)
+                item_copy["rank"] = local_idx
+                batch_payload.append(item_copy)
             
-            user_prompt_text = user_prompt_template.replace(
-                "{{pairs_data}}", json.dumps(batch, indent=2)
+            payload_json = json.dumps(batch_payload, indent=2, ensure_ascii=False)
+            user_prompt_text = user_prompt_template
+            if "{{pairs_data}}" in user_prompt_text:
+                user_prompt_text = user_prompt_text.replace("{{pairs_data}}", payload_json)
+            elif "{pairs_data}" in user_prompt_text:
+                user_prompt_text = user_prompt_text.replace("{pairs_data}", payload_json)
+            elif "{{pairs}}" in user_prompt_text:
+                user_prompt_text = user_prompt_text.replace("{{pairs}}", payload_json)
+            elif "{pairs}" in user_prompt_text:
+                user_prompt_text = user_prompt_text.replace("{pairs}", payload_json)
+            elif "{{data}}" in user_prompt_text:
+                user_prompt_text = user_prompt_text.replace("{{data}}", payload_json)
+            elif "{data}" in user_prompt_text:
+                user_prompt_text = user_prompt_text.replace("{data}", payload_json)
+            else:
+                user_prompt_text = f"{user_prompt_text}\n\nData:\n{payload_json}"
+
+            logger.info(
+                "[validate_pairs_with_llm] dispatching batch %d-%d with %d items. Sample prompt: %s",
+                i, i + len(batch), len(batch_payload), user_prompt_text[:300].replace("\n", " "),
             )
 
             try:
@@ -159,15 +190,15 @@ async def validate_pairs_with_llm(pairs_data: list[dict]) -> dict[int, str]:
                     
                 judgements = validated.judgements
 
-                valid_ranks = {p["rank"] for p in batch}
-
                 for j in judgements:
-                    if j.rank not in valid_ranks:
+                    if j.rank not in local_to_global:
                         logger.warning(
                             "[validate_pairs_with_llm] model returned out-of-range rank=%s — skipping.",
                             j.rank,
                         )
                         continue
+
+                    global_rank = local_to_global[j.rank]
 
                     if (
                         j.verdict == "PASS"
@@ -176,14 +207,13 @@ async def validate_pairs_with_llm(pairs_data: list[dict]) -> dict[int, str]:
                         and j.best_sol_id
                         and has_action_verb(j.reason)
                     ):
-                        passed[j.rank] = j.best_sol_id
-                        
-                    if j.rank not in passed:
+                        passed[global_rank] = j.best_sol_id
+                    else:
                         pii_note = " [PII]" if j.pii_detected else ""
                         no_verb_note = " [NO_ACTION_VERB]" if not has_action_verb(j.reason) else ""
-                        logger.debug(
-                            "  REJECTED rank=%s score=%s%s%s reason=%s",
-                            j.rank, j.score, pii_note, no_verb_note, j.reason,
+                        logger.info(
+                            "  [LLM JUDGEMENT] rank=%s (global=%s) verdict=%s score=%s%s%s reason=%s",
+                            j.rank, global_rank, j.verdict, j.score, pii_note, no_verb_note, j.reason,
                         )
             except Exception as e:
                 logger.error("[validate_pairs_with_llm] Batch failed: %r", e)

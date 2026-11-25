@@ -6,7 +6,7 @@ logger = logging.getLogger(__name__)
 
 async def get_big_numbers_from_db() -> dict | None:
     query = text("""
-        WITH -- 1. Shiksha Chaupals
+         WITH -- 1. Shiksha Chaupals
         shiksha_chaupals AS (
             SELECT COUNT(DISTINCT submission_id) AS total
             FROM submissions
@@ -18,13 +18,13 @@ async def get_big_numbers_from_db() -> dict | None:
             FROM submissions s
             JOIN submission_metrics sm ON s.submission_id = sm.submission_id
             WHERE s.submission_type = 'discussion' 
-            AND sm.metric_code IN ('men', 'women', 'children', 'teacher')
+            AND sm.metric_code IN ('men', 'women', 'children', 'teacher', 'participant count')
         ),
         -- 3. Local Challenges Identified
         local_challenges AS (
             SELECT COUNT(*) AS total
             FROM analysis_results
-            WHERE LOWER(statement_type) = 'challenges'
+            WHERE analysis_column = '{challenge}'
         ),
         -- 4. Local Solutions Identified
         local_solutions AS (
